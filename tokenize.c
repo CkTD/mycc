@@ -6,6 +6,8 @@
 
 const char *token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_CLOSING_BRACES] = "}",
+                           [TK_OPENING_PARENTHESES] = "(",
+                           [TK_CLOSING_PARENTHESES] = ")",
                            [TK_SIMI] = ";",
                            [TK_STAR] = "*",
                            [TK_ADD] = "+",
@@ -55,6 +57,12 @@ Token tokenize(char *p) {
       p++;
     } else if (*p == '}') {
       n = mktoken(TK_CLOSING_BRACES, stringn(p, 1));
+      p++;
+    } else if (*p == '(') {
+      n = mktoken(TK_OPENING_PARENTHESES, stringn(p, 1));
+      p++;
+    } else if (*p == ')') {
+      n = mktoken(TK_CLOSING_PARENTHESES, stringn(p, 1));
       p++;
     } else if (*p == '+') {
       n = mktoken(TK_ADD, stringn(p, 1));

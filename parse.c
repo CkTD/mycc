@@ -67,7 +67,7 @@ static Node mkleaf(int op) { return mknode(op, NULL, NULL); }
 // equality_expr:  relational_expr { '>' | '<' | '>=' | '<=' relational_expr}
 // relational_expr:sum_exp { '+'|'-' sum_exp }
 // sum_exp:        mul_exp { '*'|'/' mul_exp }
-// mul_exp:        identifier | number
+// mul_exp:        identifier | number  | '(' assignexpr ')'
 
 static Node statement();
 static Node comp_stat();
@@ -222,6 +222,14 @@ static Node mul_expr() {
     advance();
     return n;
   }
+
+  if (t->kind == TK_OPENING_PARENTHESES) {
+    advance();
+    Node n = assign_expr();
+    advancet(TK_CLOSING_PARENTHESES);
+    return n;
+  }
+
   error("parse: mulexpr got unexpected token %s", token_str[t->kind]);
   return NULL;
   // return expr();
