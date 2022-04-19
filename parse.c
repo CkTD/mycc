@@ -10,7 +10,7 @@ char *ast_str[] = {
     [A_SUB] = "sub",        [A_MUL] = "mul",
     [A_DIV] = "div",        [A_NUM] = "num",
     [A_PRINT] = "print",    [A_IDENT] = "identifier",
-    [A_LVIDENT] = "lvalue",
+    [A_LVIDENT] = "lvalue", [A_IF] = "if",
 };
 
 static Token t;  // token to be processed
@@ -33,10 +33,11 @@ static int advanceif(int kind) {
   return 0;
 }
 
-static Node mknode(int op, Node left, Node right) {
+static Node mknode(int op, Node left, Node mid, Node right) {
   Node n = malloc(sizeof(struct node));
   n->op = op;
   n->left = left;
+  n->mid = mid;
   n->right = right;
   n->intvalue = 0;
   n->next = NULL;
@@ -45,12 +46,16 @@ static Node mknode(int op, Node left, Node right) {
 }
 
 static Node mkbinary(int op, Node left, Node right) {
-  return mknode(op, left, right);
+  return mknode(op, left, NULL, right);
 }
 
-static Node mkuniary(int op, Node left) { return mknode(op, left, NULL); }
+static Node mkuniary(int op, Node left) { return mknode(op, left, NULL, NULL); }
 
-static Node mkleaf(int op) { return mknode(op, NULL, NULL); }
+static Node mkternary(int op, Node left, Node mid, Node right) {
+  return mknode(op, left, mid, right);
+};
+
+static Node mkleaf(int op) { return mknode(op, NULL, NULL, NULL); }
 
 // C operator precedence
 // https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
@@ -58,6 +63,7 @@ static Node mkleaf(int op) { return mknode(op, NULL, NULL); }
 // https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm
 
 // statement:      expr_stat | print_stat | comp_stat | ;
+//                 selection-stat
 // comp_stat:      '{' {decl}* {stat}* '}'
 // decl:           'int' identifier;
 // print_stat:     'print' expr;
@@ -68,6 +74,8 @@ static Node mkleaf(int op) { return mknode(op, NULL, NULL); }
 // relational_expr:sum_exp { '+'|'-' sum_exp }
 // sum_exp:        mul_exp { '*'|'/' mul_exp }
 // mul_exp:        identifier | number  | '(' assignexpr ')'
+// selection-stat: if_stat
+// if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
 
 static Node statement();
 static Node comp_stat();
@@ -78,6 +86,7 @@ static Node eq_expr();
 static Node rel_expr();
 static Node mul_expr();
 static Node sum_expr();
+static Node if_stat();
 
 static Node statement() {
   // empyt statement
@@ -97,6 +106,11 @@ static Node statement() {
     Node n = mkuniary(A_PRINT, assign_expr());
     advancet(TK_SIMI);
     return n;
+  }
+
+  // if statement
+  if (t->kind == TK_IF) {
+    return if_stat();
   }
 
   // expr statement
@@ -235,6 +249,20 @@ static Node mul_expr() {
   // return expr();
 }
 
+Node if_stat() {
+  Node cond, truestat, falsestat = NULL;
+  advancet(TK_IF);
+  advancet(TK_OPENING_PARENTHESES);
+  cond = assign_expr();
+  advancet(TK_CLOSING_PARENTHESES);
+  truestat = statement();
+  if (advanceif(TK_ELSE)) {
+    falsestat = statement();
+  }
+
+  return mkternary(A_IF, cond, truestat, falsestat);
+}
+
 Node parse(Token root) {
   t = root;
   Node n = statement();
@@ -250,5 +278,6 @@ void print_ast(Node n, int indent) {
             n->intvalue, n->sym);
     print_ast(n->left, indent + 2);
     print_ast(n->right, indent + 2);
+    if (n->next) fprintf(stderr, "%*s----------\n", indent, "");
   }
 }

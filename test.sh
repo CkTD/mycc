@@ -34,6 +34,25 @@ E+=("6")
 T+=("{print 3*(4+(3-1)*5); }")
 E+=("42")
 
+T+=("if(1==1) print 1;")
+E+=("1")
+
+T+=("if(1==2) {print 1;}")
+E+=("")
+
+T+=("if(0){print 1;} else {print 2;}")
+E+=("2")
+
+T+=("if(3) print 1; else print 2;")
+E+=("1")
+
+T+=("if(2>3){print 1;} else { if(2==3) print 2; else print 3;}")
+E+=("3")
+
+# dangling if:  https://en.wikipedia.org/wiki/Dangling_else
+T+=("if(0) if (0) print 2; else print 3;")
+E+=("")
+
 passed=0
 failed=0
 

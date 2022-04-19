@@ -26,6 +26,8 @@ enum {
   TK_PRINT,
   TK_IDENT,
   TK_INT,
+  TK_IF,
+  TK_ELSE,
   //
   TK_EOI,
   // constant
@@ -78,6 +80,7 @@ enum {
   A_PRINT,
   A_IDENT,
   A_LVIDENT,
+  A_IF,
 };
 
 extern char *ast_str[];
@@ -86,6 +89,7 @@ typedef struct node *Node;
 struct node {
   int op;
   Node left;
+  Node mid;
   Node right;
   Node next;
 

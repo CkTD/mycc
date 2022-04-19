@@ -23,6 +23,8 @@ const char *token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_PRINT] = "print",
                            [TK_IDENT] = "identifier",
                            [TK_INT] = "int",
+                           [TK_IF] = "if",
+                           [TK_ELSE] = "else",
                            [TK_EOI] = "eoi",
                            [TK_NUM] = "number"};
 
@@ -109,6 +111,12 @@ Token tokenize(char *p) {
     } else if (p[0] == 'i' && p[1] == 'n' && p[2] == 't') {
       n = mktoken(TK_INT, string("int"));
       p += 3;
+    } else if (p[0] == 'i' && p[1] == 'f') {
+      n = mktoken(TK_IF, string("if"));
+      p += 2;
+    } else if (p[0] == 'e' && p[1] == 'l' && p[2] == 's' && p[3] == 'e') {
+      n = mktoken(TK_ELSE, string("else"));
+      p += 4;
     }
     // identifer
     else if (isalpha(*p)) {

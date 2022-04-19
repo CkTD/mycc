@@ -5,7 +5,10 @@
 
 // https://web.stanford.edu/class/archive/cs/cs107/cs107.1222/guide/x86-64.html
 
-// https://sourceware.org/binutils/docs-2.38/as.html
+// gas manual: https://sourceware.org/binutils/docs-2.38/as.html
+
+// x86_64 instruction reference: https://www.felixcloutier.com/x86/
+
 static char *reg_list[4] = {
     "r8",
     "r9",
@@ -41,6 +44,13 @@ static void free_reg(int r) {
     error("free an unused register");
   }
   reg_stat[r] = 0;
+}
+
+static int label_id = 0;
+char *new_label() {
+  char buf[32];
+  sprintf(buf, "L%d", label_id++);
+  return string(buf);
 }
 
 static int load(int value) {
@@ -116,11 +126,45 @@ static void globalsym(char *s) { fprintf(stdout, "\t.comm\t%s, 8, 8\n", s); }
 
 void genglobalsym(char *s) { globalsym(s); }
 
+static int astgen(Node n, int storreg);
+
+static int gen_if(Node n) {
+  Node cond = n->left, tstat = n->mid, fstat = n->right;
+  char *lend = new_label();
+  char *lfalse = fstat ? new_label() : lend;
+  int reg;
+
+  // condition
+  reg = astgen(cond, -1);
+  fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
+  free_reg(reg);
+  fprintf(stdout, "\tjz\t%s\n", lfalse);
+
+  // true statement
+  free_reg(astgen(tstat, -1));
+
+  // false statement
+  if (fstat) {
+    fprintf(stdout, "\tjmp\t%s\n", lend);
+    fprintf(stdout, "%s:\n", lfalse);
+    free_reg(astgen(fstat, -1));
+  }
+
+  fprintf(stdout, "%s:\n", lend);
+  return -1;
+}
+
 static int astgen(Node n, int storreg) {
   int lreg, rreg, reg = -1;
 
   for (; n; n = n->next) {
     reg = lreg = rreg = -1;
+
+    if (n->op == A_IF) {
+      gen_if(n);
+      continue;
+    }
+
     if (n->left) lreg = astgen(n->left, -1);
     if (n->right) rreg = astgen(n->right, lreg);
 
