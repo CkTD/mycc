@@ -117,6 +117,10 @@ Token tokenize(char *p) {
     } else if (p[0] == 'e' && p[1] == 'l' && p[2] == 's' && p[3] == 'e') {
       n = mktoken(TK_ELSE, string("else"));
       p += 4;
+    } else if (p[0] == 'w' && p[1] == 'h' && p[2] == 'i' && p[3] == 'l' &&
+               p[4] == 'e') {
+      n = mktoken(TK_WHILE, string("while"));
+      p += 5;
     }
     // identifer
     else if (isalpha(*p)) {

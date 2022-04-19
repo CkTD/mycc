@@ -11,6 +11,7 @@ char *ast_str[] = {
     [A_DIV] = "div",        [A_NUM] = "num",
     [A_PRINT] = "print",    [A_IDENT] = "identifier",
     [A_LVIDENT] = "lvalue", [A_IF] = "if",
+    [A_WHILE] = "while",
 };
 
 static Token t;  // token to be processed
@@ -63,7 +64,7 @@ static Node mkleaf(int op) { return mknode(op, NULL, NULL, NULL); }
 // https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm
 
 // statement:      expr_stat | print_stat | comp_stat | ;
-//                 selection-stat
+//                 selection-stat | iteration-stat
 // comp_stat:      '{' {decl}* {stat}* '}'
 // decl:           'int' identifier;
 // print_stat:     'print' expr;
@@ -76,6 +77,8 @@ static Node mkleaf(int op) { return mknode(op, NULL, NULL, NULL); }
 // mul_exp:        identifier | number  | '(' assignexpr ')'
 // selection-stat: if_stat
 // if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
+// iteration-stat: while_stat
+// while_stat:    'while' '(' expr_stat ')' statement
 
 static Node statement();
 static Node comp_stat();
@@ -87,6 +90,7 @@ static Node rel_expr();
 static Node mul_expr();
 static Node sum_expr();
 static Node if_stat();
+static Node while_stat();
 
 static Node statement() {
   // empyt statement
@@ -111,6 +115,11 @@ static Node statement() {
   // if statement
   if (t->kind == TK_IF) {
     return if_stat();
+  }
+
+  // while statement
+  if (t->kind == TK_WHILE) {
+    return while_stat();
   }
 
   // expr statement
@@ -261,6 +270,17 @@ Node if_stat() {
   }
 
   return mkternary(A_IF, cond, truestat, falsestat);
+}
+
+Node while_stat() {
+  Node cond, stat;
+  advancet(TK_WHILE);
+  advancet(TK_OPENING_PARENTHESES);
+  cond = assign_expr();
+  advancet(TK_CLOSING_PARENTHESES);
+  stat = statement();
+
+  return mkbinary(A_WHILE, cond, stat);
 }
 
 Node parse(Token root) {

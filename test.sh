@@ -53,6 +53,12 @@ E+=("3")
 T+=("if(0) if (0) print 2; else print 3;")
 E+=("")
 
+T+=("while(0) print 1;")
+E+=("")
+
+T+=("{int a; a = 0; while(a<3)a=a+1; print a;}")
+E+=("3")
+
 passed=0
 failed=0
 
