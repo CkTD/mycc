@@ -2,17 +2,15 @@
 #include "stdio.h"
 #include "stdlib.h"
 
-char *ast_str[] = {
-    [A_ASSIGN] = "assign",  [A_EQ] = "eq",
-    [A_NOTEQ] = "noteq",    [A_LT] = "lt",
-    [A_GT] = "gt",          [A_LE] = "le",
-    [A_GE] = "ge",          [A_ADD] = "add",
-    [A_SUB] = "sub",        [A_MUL] = "mul",
-    [A_DIV] = "div",        [A_NUM] = "num",
-    [A_PRINT] = "print",    [A_IDENT] = "identifier",
-    [A_LVIDENT] = "lvalue", [A_IF] = "if",
-    [A_WHILE] = "while",
-};
+char *ast_str[] = {[A_ASSIGN] = "assign",  [A_EQ] = "eq",
+                   [A_NOTEQ] = "noteq",    [A_LT] = "lt",
+                   [A_GT] = "gt",          [A_LE] = "le",
+                   [A_GE] = "ge",          [A_ADD] = "add",
+                   [A_SUB] = "sub",        [A_MUL] = "mul",
+                   [A_DIV] = "div",        [A_NUM] = "num",
+                   [A_PRINT] = "print",    [A_IDENT] = "identifier",
+                   [A_LVIDENT] = "lvalue", [A_IF] = "if",
+                   [A_WHILE] = "while",    [A_DOWHILE] = "dowhile"};
 
 static Token t;  // token to be processed
 static void match(int kind) {
@@ -77,8 +75,9 @@ static Node mkleaf(int op) { return mknode(op, NULL, NULL, NULL); }
 // mul_exp:        identifier | number  | '(' assignexpr ')'
 // selection-stat: if_stat
 // if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
-// iteration-stat: while_stat
+// iteration-stat: while_stat | dowhile_stat
 // while_stat:    'while' '(' expr_stat ')' statement
+// dowhile_stat:   'do' statement 'while' '(' expression ')';
 
 static Node statement();
 static Node comp_stat();
@@ -91,6 +90,7 @@ static Node mul_expr();
 static Node sum_expr();
 static Node if_stat();
 static Node while_stat();
+static Node dowhile_stat();
 
 static Node statement() {
   // empyt statement
@@ -120,6 +120,11 @@ static Node statement() {
   // while statement
   if (t->kind == TK_WHILE) {
     return while_stat();
+  }
+
+  // do-while statement
+  if (t->kind == TK_DO) {
+    return dowhile_stat();
   }
 
   // expr statement
@@ -281,6 +286,19 @@ Node while_stat() {
   stat = statement();
 
   return mkbinary(A_WHILE, cond, stat);
+}
+
+Node dowhile_stat() {
+  Node stat, cond;
+  advancet(TK_DO);
+  stat = statement();
+  advancet(TK_WHILE);
+  advancet(TK_OPENING_PARENTHESES);
+  cond = assign_expr();
+  advancet(TK_CLOSING_PARENTHESES);
+  advancet(TK_SIMI);
+
+  return mkbinary(A_DOWHILE, stat, cond);
 }
 
 Node parse(Token root) {

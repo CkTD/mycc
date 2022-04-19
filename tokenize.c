@@ -25,6 +25,8 @@ const char *token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_INT] = "int",
                            [TK_IF] = "if",
                            [TK_ELSE] = "else",
+                           [TK_WHILE] = "while",
+                           [TK_DO] = "do",
                            [TK_EOI] = "eoi",
                            [TK_NUM] = "number"};
 
@@ -121,6 +123,9 @@ Token tokenize(char *p) {
                p[4] == 'e') {
       n = mktoken(TK_WHILE, string("while"));
       p += 5;
+    } else if (p[0] == 'd' && p[1] == 'o') {
+      n = mktoken(TK_DO, string("do"));
+      p += 2;
     }
     // identifer
     else if (isalpha(*p)) {

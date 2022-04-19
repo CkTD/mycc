@@ -59,6 +59,12 @@ E+=("")
 T+=("{int a; a = 0; while(a<3)a=a+1; print a;}")
 E+=("3")
 
+T+=("do print 1;while(0);")
+E+=("1")
+
+T+=("{int i; i =0; do{i=(i+1)*3;} while(i<20); print i;}")
+E+=("39")
+
 passed=0
 failed=0
 

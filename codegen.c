@@ -176,6 +176,25 @@ static int gen_while(Node n) {
   return -1;
 }
 
+static int gen_dowhile(Node n) {
+  int reg;
+  Node stat = n->left;
+  Node cond = n->right;
+  char *lstat = new_label();
+
+  // statement
+  fprintf(stdout, "%s:\n", lstat);
+  free_reg(astgen(stat, -1));
+
+  // condition
+  reg = astgen(cond, -1);
+  fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
+  free_reg(reg);
+  fprintf(stdout, "\tjnz\t%s\n", lstat);
+
+  return -1;
+}
+
 static int astgen(Node n, int storreg) {
   int lreg, rreg, reg = -1;
 
@@ -189,6 +208,11 @@ static int astgen(Node n, int storreg) {
 
     if (n->op == A_WHILE) {
       gen_while(n);
+      continue;
+    }
+
+    if (n->op == A_DOWHILE) {
+      gen_dowhile(n);
       continue;
     }
 
