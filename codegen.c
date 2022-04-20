@@ -276,6 +276,22 @@ static int gen_for(Node n) {
   return -1;
 }
 
+static int gen_func(Node n) {
+  Node type = n->left;
+  Node proto = n->mid;
+  Node stat = n->right;
+  if (type || proto) {
+    error("func type or proto is not void");
+  }
+
+  fprintf(stdout, ".text\n");
+  fprintf(stdout, ".global %s\n", n->sym);
+  fprintf(stdout, "%s:\n", n->sym);
+  free_reg(astgen(stat, -1));
+  fprintf(stdout, "\tret\n");
+  return -1;
+}
+
 static int astgen(Node n, int storreg) {
   int lreg, rreg, reg = -1;
 
@@ -308,6 +324,11 @@ static int astgen(Node n, int storreg) {
     }
     if (n->op == A_CONTINUE) {
       gen_continue(n);
+      continue;
+    }
+
+    if (n->op == A_FUNCDEF) {
+      gen_func(n);
       continue;
     }
 
@@ -382,11 +403,6 @@ void codegen(Node n) {
   fprintf(stdout, "\tpop\t%%rbx\n");
   fprintf(stdout, "\tret\n");
 
-  // main
-  fprintf(stdout, ".text\n");
-  fprintf(stdout, ".globl main\n");
-  fprintf(stdout, "main:\n");
+  // translate ast to code
   astgen(n, 0);
-  fprintf(stdout, "\tmov\t$0, %%rax\n");
-  fprintf(stdout, "\tret\n");
 }

@@ -33,6 +33,7 @@ enum {
   TK_FOR,
   TK_BREAK,
   TK_CONTINUE,
+  TK_VOID,
   //
   TK_EOI,
   // constant
@@ -91,6 +92,7 @@ enum {
   A_FOR,
   A_BREAK,
   A_CONTINUE,
+  A_FUNCDEF,
 };
 
 extern char *ast_str[];

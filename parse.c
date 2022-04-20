@@ -2,27 +2,30 @@
 #include "stdio.h"
 #include "stdlib.h"
 
-char *ast_str[] = {[A_ASSIGN] = "assign",
-                   [A_EQ] = "eq",
-                   [A_NOTEQ] = "noteq",
-                   [A_LT] = "lt",
-                   [A_GT] = "gt",
-                   [A_LE] = "le",
-                   [A_GE] = "ge",
-                   [A_ADD] = "add",
-                   [A_SUB] = "sub",
-                   [A_MUL] = "mul",
-                   [A_DIV] = "div",
-                   [A_NUM] = "num",
-                   [A_PRINT] = "print",
-                   [A_IDENT] = "identifier",
-                   [A_LVIDENT] = "lvalue",
-                   [A_IF] = "if",
-                   [A_WHILE] = "while",
-                   [A_DOWHILE] = "dowhile",
-                   [A_FOR] = "for",
-                   [A_BREAK] = "break",
-                   [A_CONTINUE] = "continue"};
+char *ast_str[] = {
+    [A_ASSIGN] = "assign",
+    [A_EQ] = "eq",
+    [A_NOTEQ] = "noteq",
+    [A_LT] = "lt",
+    [A_GT] = "gt",
+    [A_LE] = "le",
+    [A_GE] = "ge",
+    [A_ADD] = "add",
+    [A_SUB] = "sub",
+    [A_MUL] = "mul",
+    [A_DIV] = "div",
+    [A_NUM] = "num",
+    [A_PRINT] = "print",
+    [A_IDENT] = "identifier",
+    [A_LVIDENT] = "lvalue",
+    [A_IF] = "if",
+    [A_WHILE] = "while",
+    [A_DOWHILE] = "dowhile",
+    [A_FOR] = "for",
+    [A_BREAK] = "break",
+    [A_CONTINUE] = "continue",
+    [A_FUNCDEF] = "funcdef",
+};
 
 static Token t;  // token to be processed
 static void match(int kind) {
@@ -77,6 +80,8 @@ static void link(Node n, Node m) {
 // C syntax
 // https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm
 
+// trans_unit:     { func_def }
+// func_def:       'void' identifier '(' ')' comp_stat
 // statement:      expr_stat | print_stat | comp_stat | ;
 //                 selection-stat | iteration-stat | jump_stat
 // comp_stat:      '{' {decl}* {stat}* '}'
@@ -98,6 +103,8 @@ static void link(Node n, Node m) {
 //                 statement
 // jump_stat:      break ';' | continue ';'
 
+static Node trans_unit();
+static Node func_def();
 static Node statement();
 static Node comp_stat();
 static Node decl();
@@ -107,10 +114,36 @@ static Node eq_expr();
 static Node rel_expr();
 static Node mul_expr();
 static Node sum_expr();
+static Node identifier();
 static Node if_stat();
 static Node while_stat();
 static Node dowhile_stat();
 static Node for_stat();
+
+static Node trans_unit() {
+  struct node head;
+  Node last = &head;
+  while (t->kind != TK_EOI) {
+    last = last->next = func_def();
+  }
+  return last;
+}
+
+static Node func_def() {
+  Node ident, type, proto, stat;
+
+  advancet(TK_VOID);
+  type = NULL;  // void
+  ident = identifier();
+  advancet(TK_OPENING_PARENTHESES);
+  proto = NULL;
+  advancet(TK_CLOSING_PARENTHESES);
+  stat = comp_stat();
+
+  Node f = mkternary(A_FUNCDEF, type, proto, stat);
+  f->sym = ident->sym;
+  return f;
+}
 
 static Node statement() {
   // empyt statement
@@ -282,10 +315,7 @@ static Node mul_expr() {
   }
 
   if (t->kind == TK_IDENT) {
-    Node n = mkleaf(A_IDENT);
-    n->sym = t->name;
-    advance();
-    return n;
+    return identifier();
   }
 
   if (t->kind == TK_OPENING_PARENTHESES) {
@@ -298,6 +328,13 @@ static Node mul_expr() {
   error("parse: mulexpr got unexpected token %s", token_str[t->kind]);
   return NULL;
   // return expr();
+}
+
+static Node identifier() {
+  Node n = mkleaf(A_IDENT);
+  n->sym = t->name;
+  advancet(TK_IDENT);
+  return n;
 }
 
 Node if_stat() {
@@ -374,7 +411,7 @@ static Node for_stat() {
 
 Node parse(Token root) {
   t = root;
-  Node n = statement();
+  Node n = trans_unit();
   if (t->kind != TK_EOI) {
     error("parse: unexpected EOI");
   }
