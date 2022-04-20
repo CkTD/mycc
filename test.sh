@@ -74,6 +74,25 @@ E+=("10")
 T+=("{int i; int s; i=0;s=0;for(;i<10;){s=s+1;i=i+1;}print s;}")
 E+=("10")
 
+T+=("{int a; int b; a = 0; b=0; while(a<5){a=a+1;if(a==2) continue; b=b+1;} print b;}")
+E+=("4")
+
+T+=("{int a; int b; a = 0; b=0; while(a<5){a=a+1;if(a==2) break; b=b+1;} print b;}")
+E+=("1")
+
+T+=("{int a; int b; a = 0; b=0; do{a=a+1; if(a==2) continue; b=b+1;} while(a<5); print b;}")
+E+=("4")
+
+T+=("{int a; int b; a = 0; b=0; do{a=a+1; if(a==2) break; b=b+1;} while(a<5); print b;}")
+E+=("1")
+
+# break should stop the inner iteration
+T+=("{int a; int b; int c; a=0; b=0; while(a<5) {a=a+1; c=0; while(1){c=c+1; if(c==a) break;} b=b+c;} print b;}")
+E+=("15")
+
+T+=("{for(;;){break;}print 1;}")
+E+=("1")
+
 passed=0
 failed=0
 

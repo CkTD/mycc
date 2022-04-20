@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "inc.h"
@@ -154,12 +155,32 @@ static int gen_if(Node n) {
   return -1;
 }
 
+typedef struct jumploc *JumpLoc;
+struct jumploc {
+  char **lcontinue;
+  char **lbreak;
+  JumpLoc next;
+};
+JumpLoc iterjumploc;
+
+static void iter_enter(char **lcontinue, char **lbreak) {
+  JumpLoc j = malloc(sizeof(struct jumploc));
+  j->lbreak = lbreak;
+  j->lcontinue = lcontinue;
+  j->next = iterjumploc;
+  iterjumploc = j;
+}
+
+static void iter_exit() { iterjumploc = iterjumploc->next; }
+
 static int gen_while(Node n) {
   int reg;
   Node cond = n->left;
   Node stat = n->right;
   char *lcond = new_label();
   char *lend = new_label();
+
+  iter_enter(&lcond, &lend);
 
   // condition
   fprintf(stdout, "%s:\n", lcond);
@@ -173,6 +194,7 @@ static int gen_while(Node n) {
   fprintf(stdout, "\tjmp\t%s\n", lcond);
   fprintf(stdout, "%s:\n", lend);
 
+  iter_exit();
   return -1;
 }
 
@@ -181,6 +203,9 @@ static int gen_dowhile(Node n) {
   Node stat = n->left;
   Node cond = n->right;
   char *lstat = new_label();
+  char *lend = NULL;
+
+  iter_enter(&lstat, &lend);
 
   // statement
   fprintf(stdout, "%s:\n", lstat);
@@ -192,6 +217,27 @@ static int gen_dowhile(Node n) {
   free_reg(reg);
   fprintf(stdout, "\tjnz\t%s\n", lstat);
 
+  iter_exit();
+  if (lend) {
+    fprintf(stdout, "%s:\n", lend);
+  }
+
+  return -1;
+}
+
+static int gen_break(Node n) {
+  if (!(*iterjumploc->lbreak)) {
+    *iterjumploc->lbreak = new_label();
+  }
+  fprintf(stdout, "\tjmp\t%s\n", *iterjumploc->lbreak);
+  return -1;
+}
+
+static int gen_continue(Node n) {
+  if (!(*iterjumploc->lcontinue)) {
+    *iterjumploc->lcontinue = new_label();
+  }
+  fprintf(stdout, "\tjmp\t%s\n", *iterjumploc->lcontinue);
   return -1;
 }
 
@@ -202,6 +248,7 @@ static int gen_for(Node n) {
   int reg;
   char *lcond = new_label();
   char *lend = new_label();
+  char *lcontinue = (post_expr) ? NULL : lcond;
 
   // cond_expr
   fprintf(stdout, "%s:\n", lcond);
@@ -213,10 +260,15 @@ static int gen_for(Node n) {
   }
 
   // stat
+  iter_enter(&lcontinue, &lend);
   free_reg(astgen(stat, -1));
+  iter_exit();
 
   // post_expr
   if (post_expr) {
+    if (lcontinue) {
+      fprintf(stdout, "%s:\n", lcontinue);
+    }
     free_reg(astgen(post_expr, -1));
   }
   fprintf(stdout, "\tjmp\t%s\n", lcond);
@@ -247,6 +299,15 @@ static int astgen(Node n, int storreg) {
 
     if (n->op == A_FOR) {
       gen_for(n);
+      continue;
+    }
+
+    if (n->op == A_BREAK) {
+      gen_break(n);
+      continue;
+    }
+    if (n->op == A_CONTINUE) {
+      gen_continue(n);
       continue;
     }
 

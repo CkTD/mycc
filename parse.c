@@ -2,16 +2,27 @@
 #include "stdio.h"
 #include "stdlib.h"
 
-char *ast_str[] = {[A_ASSIGN] = "assign",  [A_EQ] = "eq",
-                   [A_NOTEQ] = "noteq",    [A_LT] = "lt",
-                   [A_GT] = "gt",          [A_LE] = "le",
-                   [A_GE] = "ge",          [A_ADD] = "add",
-                   [A_SUB] = "sub",        [A_MUL] = "mul",
-                   [A_DIV] = "div",        [A_NUM] = "num",
-                   [A_PRINT] = "print",    [A_IDENT] = "identifier",
-                   [A_LVIDENT] = "lvalue", [A_IF] = "if",
-                   [A_WHILE] = "while",    [A_DOWHILE] = "dowhile",
-                   [A_FOR] = "for"};
+char *ast_str[] = {[A_ASSIGN] = "assign",
+                   [A_EQ] = "eq",
+                   [A_NOTEQ] = "noteq",
+                   [A_LT] = "lt",
+                   [A_GT] = "gt",
+                   [A_LE] = "le",
+                   [A_GE] = "ge",
+                   [A_ADD] = "add",
+                   [A_SUB] = "sub",
+                   [A_MUL] = "mul",
+                   [A_DIV] = "div",
+                   [A_NUM] = "num",
+                   [A_PRINT] = "print",
+                   [A_IDENT] = "identifier",
+                   [A_LVIDENT] = "lvalue",
+                   [A_IF] = "if",
+                   [A_WHILE] = "while",
+                   [A_DOWHILE] = "dowhile",
+                   [A_FOR] = "for",
+                   [A_BREAK] = "break",
+                   [A_CONTINUE] = "continue"};
 
 static Token t;  // token to be processed
 static void match(int kind) {
@@ -67,7 +78,7 @@ static void link(Node n, Node m) {
 // https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm
 
 // statement:      expr_stat | print_stat | comp_stat | ;
-//                 selection-stat | iteration-stat
+//                 selection-stat | iteration-stat | jump_stat
 // comp_stat:      '{' {decl}* {stat}* '}'
 // decl:           'int' identifier;
 // print_stat:     'print' expr;
@@ -85,6 +96,7 @@ static void link(Node n, Node m) {
 // dowhile_stat:   'do' statement 'while' '(' expression ')';
 // for_stat:       'for' '(' {expression}; {expression}; {expression}')'
 //                 statement
+// jump_stat:      break ';' | continue ';'
 
 static Node statement();
 static Node comp_stat();
@@ -138,6 +150,18 @@ static Node statement() {
   // for statement
   if (t->kind == TK_FOR) {
     return for_stat();
+  }
+
+  // jump_stat
+  if (t->kind == TK_BREAK) {
+    advancet(TK_BREAK);
+    advancet(TK_SIMI);
+    return mkleaf(A_BREAK);
+  }
+  if (t->kind == TK_CONTINUE) {
+    advancet(TK_CONTINUE);
+    advancet(TK_SIMI);
+    return mkleaf(A_CONTINUE);
   }
 
   // expr statement

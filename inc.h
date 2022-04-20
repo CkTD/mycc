@@ -31,6 +31,8 @@ enum {
   TK_WHILE,
   TK_DO,
   TK_FOR,
+  TK_BREAK,
+  TK_CONTINUE,
   //
   TK_EOI,
   // constant
@@ -87,6 +89,8 @@ enum {
   A_WHILE,
   A_DOWHILE,
   A_FOR,
+  A_BREAK,
+  A_CONTINUE,
 };
 
 extern char *ast_str[];
