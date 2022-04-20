@@ -195,6 +195,35 @@ static int gen_dowhile(Node n) {
   return -1;
 }
 
+static int gen_for(Node n) {
+  Node cond_expr = n->left;
+  Node post_expr = n->mid;
+  Node stat = n->right;
+  int reg;
+  char *lcond = new_label();
+  char *lend = new_label();
+
+  // cond_expr
+  fprintf(stdout, "%s:\n", lcond);
+  if (cond_expr) {
+    reg = astgen(cond_expr, -1);
+    fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
+    free_reg(reg);
+    fprintf(stdout, "\tje\t%s\n", lend);
+  }
+
+  // stat
+  free_reg(astgen(stat, -1));
+
+  // post_expr
+  if (post_expr) {
+    free_reg(astgen(post_expr, -1));
+  }
+  fprintf(stdout, "\tjmp\t%s\n", lcond);
+  fprintf(stdout, "%s:\n", lend);
+  return -1;
+}
+
 static int astgen(Node n, int storreg) {
   int lreg, rreg, reg = -1;
 
@@ -213,6 +242,11 @@ static int astgen(Node n, int storreg) {
 
     if (n->op == A_DOWHILE) {
       gen_dowhile(n);
+      continue;
+    }
+
+    if (n->op == A_FOR) {
+      gen_for(n);
       continue;
     }
 

@@ -30,6 +30,7 @@ enum {
   TK_ELSE,
   TK_WHILE,
   TK_DO,
+  TK_FOR,
   //
   TK_EOI,
   // constant
@@ -85,6 +86,7 @@ enum {
   A_IF,
   A_WHILE,
   A_DOWHILE,
+  A_FOR,
 };
 
 extern char *ast_str[];

@@ -65,6 +65,15 @@ E+=("1")
 T+=("{int i; i =0; do{i=(i+1)*3;} while(i<20); print i;}")
 E+=("39")
 
+T+=("{int i; int s; s=0;for(i=0;i<10;i=i+1)s=s+1;print s;}")
+E+=("10")
+
+T+=("{int i; int s; i=0;s=0;for(;i<10;i=i+1)s=s+1;print s;}")
+E+=("10")
+
+T+=("{int i; int s; i=0;s=0;for(;i<10;){s=s+1;i=i+1;}print s;}")
+E+=("10")
+
 passed=0
 failed=0
 

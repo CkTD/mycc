@@ -10,7 +10,8 @@ char *ast_str[] = {[A_ASSIGN] = "assign",  [A_EQ] = "eq",
                    [A_DIV] = "div",        [A_NUM] = "num",
                    [A_PRINT] = "print",    [A_IDENT] = "identifier",
                    [A_LVIDENT] = "lvalue", [A_IF] = "if",
-                   [A_WHILE] = "while",    [A_DOWHILE] = "dowhile"};
+                   [A_WHILE] = "while",    [A_DOWHILE] = "dowhile",
+                   [A_FOR] = "for"};
 
 static Token t;  // token to be processed
 static void match(int kind) {
@@ -56,6 +57,10 @@ static Node mkternary(int op, Node left, Node mid, Node right) {
 
 static Node mkleaf(int op) { return mknode(op, NULL, NULL, NULL); }
 
+static void link(Node n, Node m) {
+  while (n->next) n = n->next;
+  n->next = m;
+}
 // C operator precedence
 // https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
 // C syntax
@@ -75,9 +80,11 @@ static Node mkleaf(int op) { return mknode(op, NULL, NULL, NULL); }
 // mul_exp:        identifier | number  | '(' assignexpr ')'
 // selection-stat: if_stat
 // if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
-// iteration-stat: while_stat | dowhile_stat
-// while_stat:    'while' '(' expr_stat ')' statement
+// iteration-stat: while_stat | dowhile_stat | for_stat
+// while_stat:     'while' '(' expr_stat ')' statement
 // dowhile_stat:   'do' statement 'while' '(' expression ')';
+// for_stat:       'for' '(' {expression}; {expression}; {expression}')'
+//                 statement
 
 static Node statement();
 static Node comp_stat();
@@ -91,6 +98,7 @@ static Node sum_expr();
 static Node if_stat();
 static Node while_stat();
 static Node dowhile_stat();
+static Node for_stat();
 
 static Node statement() {
   // empyt statement
@@ -127,6 +135,11 @@ static Node statement() {
     return dowhile_stat();
   }
 
+  // for statement
+  if (t->kind == TK_FOR) {
+    return for_stat();
+  }
+
   // expr statement
   Node n = expression();
   advancet(TK_SIMI);
@@ -145,7 +158,7 @@ static Node comp_stat() {
       last->next = statement();
     }
 
-    if (last->next) last = last->next;
+    while (last->next) last = last->next;
   }
   advancet(TK_CLOSING_BRACES);
   return head.next;
@@ -299,6 +312,40 @@ Node dowhile_stat() {
   advancet(TK_SIMI);
 
   return mkbinary(A_DOWHILE, stat, cond);
+}
+
+static Node for_stat() {
+  Node pre_expr, cond_expr, post_expr, stat;
+  advancet(TK_FOR);
+  advancet(TK_OPENING_PARENTHESES);
+  if (advanceif(TK_SIMI)) {
+    pre_expr = NULL;
+  } else {
+    pre_expr = expression();
+    advancet(TK_SIMI);
+  }
+  if (advanceif(TK_SIMI)) {
+    cond_expr = NULL;
+  } else {
+    cond_expr = expression();
+    advancet(TK_SIMI);
+  }
+  if (advanceif(TK_CLOSING_PARENTHESES)) {
+    post_expr = NULL;
+  } else {
+    post_expr = expression();
+    advancet(TK_CLOSING_PARENTHESES);
+  }
+  stat = statement();
+
+  Node forstat = mkternary(A_FOR, cond_expr, post_expr, stat);
+
+  if (!pre_expr) {
+    return forstat;
+  }
+
+  link(pre_expr, forstat);
+  return pre_expr;
 }
 
 Node parse(Token root) {
