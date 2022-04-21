@@ -4,7 +4,7 @@
 
 char *ast_str[] = {
     [A_ASSIGN] = "assign",   [A_EQ] = "eq",
-    [A_NOTEQ] = "noteq",     [A_LT] = "lt",
+    [A_NE] = "noteq",        [A_LT] = "lt",
     [A_GT] = "gt",           [A_LE] = "le",
     [A_GE] = "ge",           [A_ADD] = "add",
     [A_SUB] = "sub",         [A_MUL] = "mul",
@@ -227,7 +227,7 @@ static Node expression() {
   n->kind = A_LVIDENT;
   advancet(TK_EQUAL);
 
-  return mkbinary(A_ASSIGN, expression(), n);
+  return mkbinary(A_ASSIGN, n, expression());
 }
 
 static Node assign_expr() {
@@ -236,7 +236,7 @@ static Node assign_expr() {
     if (advanceif(TK_EQUALEQUAL)) {
       n = mkbinary(A_EQ, n, eq_expr());
     } else if (advanceif(TK_NOTEQUAL)) {
-      n = mkbinary(A_NOTEQ, n, eq_expr());
+      n = mkbinary(A_NE, n, eq_expr());
     } else {
       break;
     }

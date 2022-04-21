@@ -10,41 +10,39 @@
 
 // x86_64 instruction reference: https://www.felixcloutier.com/x86/
 
-static char *reg_list[4] = {
-    "r8",
-    "r9",
-    "r10",
-    "r11",
-};
+// X86_64 Registers
+//
+// 64-bit | 32-bits | 16-bits | 8-bits | Conventional use
+// ==============================================================
+// rax   | eax      | ax      | al     | Return value, callee-owned
+// rdi   | edi      | di      | dil    | 1-6 argument, callee-owned
+// rsi   | esi      | si      | si
+// rdx   | edx      | dx      | dl
+// rcx   | ecx      | cx      | cl
+// r8    | r8d      | r8w     | r8b
+// r9    | r9d      | r9w     | r9b
+// r10   | r10d     | r10w    | r10b   | Scratch/temporary, callee-owned
+// r11   | r11d     | r11w    | r11b
+// rsp   | esp      | sp      | spl    | Stack pointer, caller-owned
+// rbx   | ebx      | bx      | bl     | Local Variable, caller-owned
+// rbp   | ebp      | bp      | bpl
+// r12   | r12d     | r12w    | r12b
+// r13   | r13d     | r13w    | r13b
+// r14   | r14d     | r14w    | r14b
+// r15   | r15d     | r15w    | r15b
+//
+// rip
+// eflags
 
-static char *reg_list_b[4] = {
-    "r8b",
-    "r9b",
-    "r10b",
-    "r11b",
-};
-
-static int reg_stat[4];
-
-static void free_all_reg() { memset(reg_stat, 0, sizeof(int) * 4); }
-
-static int alloc_reg() {
-  for (int i = 0; i < 4; i++) {
-    if (!reg_stat[i]) {
-      reg_stat[i] = 1;
-      return i;
-    }
-  }
-  error("out of registers");
-  return 0;
+static int deepth;
+static void push() {
+  fprintf(stdout, "\tpush\t%%rax\n");
+  ++deepth;
 }
 
-static void free_reg(int r) {
-  if (r < 0) return;
-  if (!reg_stat[r]) {
-    error("free an unused register");
-  }
-  reg_stat[r] = 0;
+static void pop() {
+  fprintf(stdout, "\tpop\t%%rdi\n");
+  --deepth;
 }
 
 static int label_id = 0;
@@ -54,91 +52,62 @@ char *new_label() {
   return string(buf);
 }
 
-static int load(int value) {
-  int r = alloc_reg();
-  fprintf(stdout, "\tmov\t$%d, %%%s\n", value, reg_list[r]);
-  return r;
-}
+// load an int constant
+static void load(int value) { fprintf(stdout, "\tmov\t$%d, %%rax\n", value); }
 
-static int loadglobal(char *id) {
+static void loadglobal(char *id) {
   if (!findsym(id)) {
     error("use undefined global variable %s", id);
   }
-  int r = alloc_reg();
-  fprintf(stdout, "\tmov\t%s(%%rip), %%%s\n", id, reg_list[r]);
-  return r;
+  fprintf(stdout, "\tmov\t%s(%%rip), %%rax\n", id);
 }
 
-static int storglobal(char *id, int r) {
+static void storglobal(char *id) {
   if (!findsym(id)) {
     error("use undefined global variable %s", id);
   }
-  fprintf(stdout, "\tmov\t%%%s, %s(%%rip)\n", reg_list[r], id);
-  return r;
+  fprintf(stdout, "\tmov\t%%rax, %s(%%rip)\n", id);
 }
 
 // https://stackoverflow.com/questions/38335212/calling-printf-in-x86-64-using-gnu-assembler#answer-38335743
-static int print(int r1) {
-  fprintf(stdout, "\tmov\t%%%s, %%rdi\n", reg_list[r1]);
+static void print() {
+  fprintf(stdout, "\tmov\t%%rax, %%rdi\n");
   fprintf(stdout, "\tpush\t%%rbx\n");
   fprintf(stdout, "\tcall\tprint\n");
   fprintf(stdout, "\tpop\t%%rbx\n");
-  fprintf(stdout, "\tmov\t%%rax, %%%s\n", reg_list[r1]);
-  return r1;
 }
 
-static int add(int r1, int r2) {
-  fprintf(stdout, "\tadd\t%%%s, %%%s\n", reg_list[r1], reg_list[r2]);
-  free_reg(r1);
-  return r2;
-}
-
-static int sub(int r1, int r2) {
-  fprintf(stdout, "\tsub\t%%%s, %%%s\n", reg_list[r2], reg_list[r1]);
-  free_reg(r2);
-  return r1;
-}
-
-static int mul(int r1, int r2) {
-  fprintf(stdout, "\timul\t%%%s, %%%s\n", reg_list[r1], reg_list[r2]);
-  free_reg(r1);
-  return r2;
-}
-
-static int divide(int r1, int r2) {
-  fprintf(stdout, "\tmov\t%%%s, %%rax\n", reg_list[r1]);
+// binary expressions
+// get operand from: %rax(left) and %rdi(right)
+// store result to : %rax
+static void add() { fprintf(stdout, "\tadd\t%%rdi, %%rax\n"); }
+static void sub() { fprintf(stdout, "\tsub\t%%rdi, %%rax\n"); }
+static void mul() { fprintf(stdout, "\timul\t%%rdi, %%rax\n"); }
+static void divide() {
   fprintf(stdout, "\tcqo\n");
-  fprintf(stdout, "\tdiv\t%%%s\n", reg_list[r2]);
-  fprintf(stdout, "\tmov\t%%rax, %%%s\n", reg_list[r1]);
-  free_reg(r2);
-  return r1;
+  fprintf(stdout, "\tdiv\t%%rdi\n");
 }
-
 // e, ne, g, ge, l, le
-static int compare(int r1, int r2, char *cd) {
-  fprintf(stdout, "\tcmp\t%%%s, %%%s\n", reg_list[r2], reg_list[r1]);
-  fprintf(stdout, "\tset%s\t%%%s\n", cd, reg_list_b[r1]);
-  fprintf(stdout, "\tand\t$255, %%%s\n", reg_list[r1]);
-  free_reg(r2);
-  return r1;
+static void compare(char *cd) {
+  fprintf(stdout, "\tcmp\t%%rdi, %%rax\n");
+  fprintf(stdout, "\tset%s\t%%al\n", cd);
+  fprintf(stdout, "\tand\t$255, %%rax\n");
 }
 
 static void globalsym(char *s) { fprintf(stdout, "\t.comm\t%s, 8, 8\n", s); }
 
 void genglobalsym(char *s) { globalsym(s); }
 
-static int gen_expr(Node n, int storreg);
+static void gen_expr(Node n);
 static void gen_stat(Node n);
 
 static void gen_if(Node n) {
   char *lend = new_label();
   char *lfalse = n->els ? new_label() : lend;
-  int reg;
 
   // condition
-  reg = gen_expr(n->cond, -1);
-  fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
-  free_reg(reg);
+  gen_expr(n->cond);
+  fprintf(stdout, "\tcmp\t$0, %%rax\n");
   fprintf(stdout, "\tjz\t%s\n", lfalse);
 
   // true statement
@@ -173,7 +142,6 @@ static void iter_enter(char **lcontinue, char **lbreak) {
 static void iter_exit() { iterjumploc = iterjumploc->next; }
 
 static void gen_dowhile(Node n) {
-  int reg;
   char *lstat = new_label();
   char *lend = NULL;
 
@@ -184,9 +152,8 @@ static void gen_dowhile(Node n) {
   gen_stat(n->body);
 
   // condition
-  reg = gen_expr(n->cond, -1);
-  fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
-  free_reg(reg);
+  gen_expr(n->cond);
+  fprintf(stdout, "\tcmp\t$0, %%rax\n");
   fprintf(stdout, "\tjnz\t%s\n", lstat);
 
   iter_exit();
@@ -210,7 +177,6 @@ static void gen_continue(Node n) {
 }
 
 static void gen_for(Node n) {
-  int reg;
   char *lcond = new_label();
   char *lend = new_label();
   char *lcontinue = (n->post) ? NULL : lcond;
@@ -218,9 +184,8 @@ static void gen_for(Node n) {
   // cond_expr
   fprintf(stdout, "%s:\n", lcond);
   if (n->cond) {
-    reg = gen_expr(n->cond, -1);
-    fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
-    free_reg(reg);
+    gen_expr(n->cond);
+    fprintf(stdout, "\tcmp\t$0, %%rax\n");
     fprintf(stdout, "\tje\t%s\n", lend);
   }
 
@@ -234,52 +199,55 @@ static void gen_for(Node n) {
     if (lcontinue) {
       fprintf(stdout, "%s:\n", lcontinue);
     }
-    free_reg(gen_expr(n->post, -1));
+    gen_expr(n->post);
   }
   fprintf(stdout, "\tjmp\t%s\n", lcond);
   fprintf(stdout, "%s:\n", lend);
 }
 
-static int gen_expr(Node n, int storreg) {
-  int lreg, rreg;
-  if (n->left) lreg = gen_expr(n->left, -1);
-  if (n->right) rreg = gen_expr(n->right, lreg);
-
+static void gen_expr(Node n) {
   switch (n->kind) {
     case A_PRINT:
-      return print(lreg);
-    case A_ADD:
-      return add(lreg, rreg);
-    case A_SUB:
-      return sub(lreg, rreg);
-    case A_DIV:
-      return divide(lreg, rreg);
-    case A_MUL:
-      return mul(lreg, rreg);
+      gen_expr(n->left);
+      return print();
     case A_NUM:
       return load(n->intvalue);
     case A_IDENT:
       return loadglobal(n->sym);
     case A_LVIDENT:
-      return storglobal(n->sym, storreg);
+      return storglobal(n->sym);
     case A_ASSIGN:
-      return rreg;
+      gen_expr(n->right);
+      return gen_expr(n->left);
+    case A_ADD:
+    case A_SUB:
+    case A_DIV:
+    case A_MUL:
     case A_EQ:
-      return compare(lreg, rreg, "e");
-    case A_NOTEQ:
-      return compare(lreg, rreg, "ne");
+    case A_NE:
     case A_GT:
-      return compare(lreg, rreg, "g");
     case A_LT:
-      return compare(lreg, rreg, "l");
     case A_GE:
-      return compare(lreg, rreg, "ge");
     case A_LE:
-      return compare(lreg, rreg, "le");
+      // The order of evaluation is unspecified
+      // https:// en.cppreference.com/w/cpp/language/eval_order
+      gen_expr(n->right);
+      push();
+      gen_expr(n->left);
+      pop();
+      if (n->kind == A_ADD) return add();
+      if (n->kind == A_SUB) return sub();
+      if (n->kind == A_MUL) return mul();
+      if (n->kind == A_DIV) return divide();
+      if (n->kind == A_EQ) return compare("e");
+      if (n->kind == A_NE) return compare("ne");
+      if (n->kind == A_GT) return compare("g");
+      if (n->kind == A_LT) return compare("l");
+      if (n->kind == A_GE) return compare("ge");
+      if (n->kind == A_LE) return compare("le");
     default:
       error("unknown ast type %s", ast_str[n->kind]);
   }
-  return -1;
 }
 
 static void gen_stat(Node n) {
@@ -298,7 +266,7 @@ static void gen_stat(Node n) {
     case A_CONTINUE:
       return gen_continue(n);
     default:
-      free_reg(gen_expr(n, -1));
+      return gen_expr(n);
   }
 }
 

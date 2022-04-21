@@ -69,7 +69,7 @@ enum {
   A_ASSIGN,
   // 10 left
   A_EQ,
-  A_NOTEQ,
+  A_NE,
   // 9 left
   A_LT,
   A_GT,
