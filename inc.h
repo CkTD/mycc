@@ -87,25 +87,42 @@ enum {
   A_IDENT,
   A_LVIDENT,
   A_IF,
-  A_WHILE,
   A_DOWHILE,
   A_FOR,
   A_BREAK,
   A_CONTINUE,
   A_FUNCDEF,
+  A_BLOCK,
 };
 
 extern char *ast_str[];
 
 typedef struct node *Node;
 struct node {
-  int op;
-  Node left;
-  Node mid;
-  Node right;
+  int kind;
   Node next;
 
+  // Used by expr(A_ASSIGN, A_ADD, ...)
+  Node left;
+  Node right;
+
+  // A_FOR and A_IF
+  Node cond;
+  Node then;
+  Node els;
+  Node init;
+  Node post;
+
+  // compound-statement
+  Node body;
+
+  // A_NUM
   int intvalue;
+
+  // A_FUNCTION
+  Node *proto;
+  char *funcname;
+
   char *sym;
 };
 

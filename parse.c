@@ -3,78 +3,59 @@
 #include "stdlib.h"
 
 char *ast_str[] = {
-    [A_ASSIGN] = "assign",
-    [A_EQ] = "eq",
-    [A_NOTEQ] = "noteq",
-    [A_LT] = "lt",
-    [A_GT] = "gt",
-    [A_LE] = "le",
-    [A_GE] = "ge",
-    [A_ADD] = "add",
-    [A_SUB] = "sub",
-    [A_MUL] = "mul",
-    [A_DIV] = "div",
-    [A_NUM] = "num",
-    [A_PRINT] = "print",
-    [A_IDENT] = "identifier",
-    [A_LVIDENT] = "lvalue",
-    [A_IF] = "if",
-    [A_WHILE] = "while",
-    [A_DOWHILE] = "dowhile",
-    [A_FOR] = "for",
-    [A_BREAK] = "break",
-    [A_CONTINUE] = "continue",
+    [A_ASSIGN] = "assign",   [A_EQ] = "eq",
+    [A_NOTEQ] = "noteq",     [A_LT] = "lt",
+    [A_GT] = "gt",           [A_LE] = "le",
+    [A_GE] = "ge",           [A_ADD] = "add",
+    [A_SUB] = "sub",         [A_MUL] = "mul",
+    [A_DIV] = "div",         [A_NUM] = "num",
+    [A_PRINT] = "print",     [A_IDENT] = "identifier",
+    [A_LVIDENT] = "lvalue",  [A_IF] = "if",
+    [A_DOWHILE] = "dowhile", [A_FOR] = "for",
+    [A_BREAK] = "break",     [A_CONTINUE] = "continue",
     [A_FUNCDEF] = "funcdef",
 };
 
 static Token t;  // token to be processed
-static void match(int kind) {
-  if (t->kind != kind) {
+
+static int match(int kind) { return t->kind == kind; }
+static void expect(int kind) {
+  if (!match(kind)) {
     error("parse: token of %s expected but got %s", token_str[kind],
           token_str[t->kind]);
   }
 }
 static void advance() { t = t->next; }
 static void advancet(int kind) {
-  match(kind);
+  expect(kind);
   advance();
 }
 static int advanceif(int kind) {
-  if (t->kind == kind) {
+  if (match(kind)) {
     advance();
     return 1;
   }
   return 0;
 }
 
-static Node mknode(int op, Node left, Node mid, Node right) {
-  Node n = malloc(sizeof(struct node));
-  n->op = op;
-  n->left = left;
-  n->mid = mid;
-  n->right = right;
-  n->intvalue = 0;
-  n->next = NULL;
-  n->sym = NULL;
+static Node mknode(int kind) {
+  Node n = calloc(1, sizeof(struct node));
+  n->kind = kind;
   return n;
 }
 
-static Node mkbinary(int op, Node left, Node right) {
-  return mknode(op, left, NULL, right);
+static Node mkuniary(int op, Node left) {
+  Node n = mknode(op);
+  n->left = left;
+  return n;
 }
 
-static Node mkuniary(int op, Node left) { return mknode(op, left, NULL, NULL); }
-
-static Node mkternary(int op, Node left, Node mid, Node right) {
-  return mknode(op, left, mid, right);
-};
-
-static Node mkleaf(int op) { return mknode(op, NULL, NULL, NULL); }
-
-static void link(Node n, Node m) {
-  while (n->next) n = n->next;
-  n->next = m;
+static Node mkbinary(int kind, Node left, Node right) {
+  Node n = mkuniary(kind, left);
+  n->right = right;
+  return n;
 }
+
 // C operator precedence
 // https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
 // C syntax
@@ -82,12 +63,12 @@ static void link(Node n, Node m) {
 
 // trans_unit:     { func_def }
 // func_def:       'void' identifier '(' ')' comp_stat
-// statement:      expr_stat | print_stat | comp_stat | ;
+// statement:      expr_stat | print_stat | comp_stat
 //                 selection-stat | iteration-stat | jump_stat
 // comp_stat:      '{' {decl}* {stat}* '}'
 // decl:           'int' identifier;
 // print_stat:     'print' expr;
-// expr_stat:      expression;
+// expr_stat:      {expression}? ;
 // expression:     assign_expr { '='  expression }
 // assign_expr:    equality_expr { '==' | '!='  equality_expr }
 // equality_expr:  relational_expr { '>' | '<' | '>=' | '<=' relational_expr}
@@ -104,11 +85,12 @@ static void link(Node n, Node m) {
 // jump_stat:      break ';' | continue ';'
 
 static Node trans_unit();
-static Node func_def();
+static Node function();
 static Node statement();
 static Node comp_stat();
 static Node decl();
 static Node assign_expr();
+static Node expr_stat();
 static Node expression();
 static Node eq_expr();
 static Node rel_expr();
@@ -123,84 +105,76 @@ static Node for_stat();
 static Node trans_unit() {
   struct node head;
   Node last = &head;
+  last->next = NULL;
   while (t->kind != TK_EOI) {
-    last = last->next = func_def();
+    last = last->next = function();
   }
-  return last;
+  return head.next;
 }
 
-static Node func_def() {
-  Node ident, type, proto, stat;
+static Node function() {
+  Node n = mknode(A_FUNCDEF);
 
   advancet(TK_VOID);
-  type = NULL;  // void
-  ident = identifier();
+  expect(TK_IDENT);
+  n->funcname = t->name;
+  advance(TK_IDENT);
   advancet(TK_OPENING_PARENTHESES);
-  proto = NULL;
+  n->proto = NULL;
   advancet(TK_CLOSING_PARENTHESES);
-  stat = comp_stat();
+  n->body = comp_stat();
 
-  Node f = mkternary(A_FUNCDEF, type, proto, stat);
-  f->sym = ident->sym;
-  return f;
+  return n;
 }
 
 static Node statement() {
-  // empyt statement
-  if (t->kind == TK_SIMI) {
-    advance();
-    return NULL;
-  }
-
   // compound statement
-  if (t->kind == TK_OPENING_BRACES) {
+  if (match(TK_OPENING_BRACES)) {
     return comp_stat();
   }
 
   // print statement
-  if (t->kind == TK_PRINT) {
+  if (match(TK_PRINT)) {
     advance();
-    Node n = mkuniary(A_PRINT, assign_expr());
+    Node n = mkuniary(A_PRINT, expression());
     advancet(TK_SIMI);
     return n;
   }
 
   // if statement
-  if (t->kind == TK_IF) {
+  if (match(TK_IF)) {
     return if_stat();
   }
 
   // while statement
-  if (t->kind == TK_WHILE) {
+  if (match(TK_WHILE)) {
     return while_stat();
   }
 
   // do-while statement
-  if (t->kind == TK_DO) {
+  if (match(TK_DO)) {
     return dowhile_stat();
   }
 
   // for statement
-  if (t->kind == TK_FOR) {
+  if (match(TK_FOR)) {
     return for_stat();
   }
 
   // jump_stat
-  if (t->kind == TK_BREAK) {
+  if (match(TK_BREAK)) {
     advancet(TK_BREAK);
     advancet(TK_SIMI);
-    return mkleaf(A_BREAK);
+    return mknode(A_BREAK);
   }
-  if (t->kind == TK_CONTINUE) {
+  if (match(TK_CONTINUE)) {
     advancet(TK_CONTINUE);
     advancet(TK_SIMI);
-    return mkleaf(A_CONTINUE);
+    return mknode(A_CONTINUE);
   }
 
   // expr statement
-  Node n = expression();
-  advancet(TK_SIMI);
-  return n;
+  return expr_stat();
 }
 
 static Node comp_stat() {
@@ -209,25 +183,36 @@ static Node comp_stat() {
   last->next = NULL;
   advancet(TK_OPENING_BRACES);
   while (t->kind != TK_CLOSING_BRACES) {
-    if (t->kind == TK_INT) {
+    if (match(TK_INT)) {
       last->next = decl();
     } else {
       last->next = statement();
     }
-
     while (last->next) last = last->next;
   }
   advancet(TK_CLOSING_BRACES);
-  return head.next;
+  Node n = mknode(A_BLOCK);
+  n->body = head.next;
+  return n;
 }
 
 static Node decl() {
   advancet(TK_INT);
-  match(TK_IDENT);
+  expect(TK_IDENT);
   mksym(t->name);
   advance();
   advance(TK_SIMI);
   return NULL;
+}
+
+static Node expr_stat() {
+  if (advanceif(TK_SIMI)) {
+    return NULL;
+  }
+
+  Node n = expression();
+  advancet(TK_SIMI);
+  return n;
 }
 
 static Node expression() {
@@ -236,10 +221,10 @@ static Node expression() {
     return n;
   }
 
-  if (n->op != A_IDENT) {
+  if (n->kind != A_IDENT) {
     error("lvalue expected!");
   }
-  n->op = A_LVIDENT;
+  n->kind = A_LVIDENT;
   advancet(TK_EQUAL);
 
   return mkbinary(A_ASSIGN, expression(), n);
@@ -307,18 +292,18 @@ static Node sum_expr() {
 }
 
 static Node mul_expr() {
-  if (t->kind == TK_NUM) {
-    Node n = mkleaf(A_NUM);
+  if (match(TK_NUM)) {
+    Node n = mknode(A_NUM);
     n->intvalue = t->value;
     advance();
     return n;
   }
 
-  if (t->kind == TK_IDENT) {
+  if (match(TK_IDENT)) {
     return identifier();
   }
 
-  if (t->kind == TK_OPENING_PARENTHESES) {
+  if (match(TK_OPENING_PARENTHESES)) {
     advance();
     Node n = assign_expr();
     advancet(TK_CLOSING_PARENTHESES);
@@ -331,82 +316,76 @@ static Node mul_expr() {
 }
 
 static Node identifier() {
-  Node n = mkleaf(A_IDENT);
+  Node n = mknode(A_IDENT);
   n->sym = t->name;
   advancet(TK_IDENT);
   return n;
 }
 
 Node if_stat() {
-  Node cond, truestat, falsestat = NULL;
+  Node n = mknode(A_IF);
   advancet(TK_IF);
   advancet(TK_OPENING_PARENTHESES);
-  cond = assign_expr();
+  n->cond = expression();
   advancet(TK_CLOSING_PARENTHESES);
-  truestat = statement();
+  n->then = statement();
   if (advanceif(TK_ELSE)) {
-    falsestat = statement();
+    n->els = statement();
   }
 
-  return mkternary(A_IF, cond, truestat, falsestat);
+  return n;
 }
 
 Node while_stat() {
-  Node cond, stat;
+  Node n = mknode(A_FOR);
+
   advancet(TK_WHILE);
   advancet(TK_OPENING_PARENTHESES);
-  cond = assign_expr();
+  n->cond = assign_expr();
   advancet(TK_CLOSING_PARENTHESES);
-  stat = statement();
+  n->body = statement();
 
-  return mkbinary(A_WHILE, cond, stat);
+  return n;
 }
 
 Node dowhile_stat() {
-  Node stat, cond;
+  Node n = mknode(A_DOWHILE);
   advancet(TK_DO);
-  stat = statement();
+  n->body = statement();
   advancet(TK_WHILE);
   advancet(TK_OPENING_PARENTHESES);
-  cond = assign_expr();
+  n->cond = expression();
   advancet(TK_CLOSING_PARENTHESES);
   advancet(TK_SIMI);
-
-  return mkbinary(A_DOWHILE, stat, cond);
+  return n;
 }
 
 static Node for_stat() {
-  Node pre_expr, cond_expr, post_expr, stat;
+  Node n = mknode(A_FOR);
   advancet(TK_FOR);
   advancet(TK_OPENING_PARENTHESES);
   if (advanceif(TK_SIMI)) {
-    pre_expr = NULL;
+    n->init = NULL;
   } else {
-    pre_expr = expression();
+    n->init = expression();
     advancet(TK_SIMI);
   }
   if (advanceif(TK_SIMI)) {
-    cond_expr = NULL;
+    n->cond = NULL;
   } else {
-    cond_expr = expression();
+    n->cond = expression();
     advancet(TK_SIMI);
   }
+
   if (advanceif(TK_CLOSING_PARENTHESES)) {
-    post_expr = NULL;
+    n->post = NULL;
   } else {
-    post_expr = expression();
+    n->post = expression();
     advancet(TK_CLOSING_PARENTHESES);
   }
-  stat = statement();
 
-  Node forstat = mkternary(A_FOR, cond_expr, post_expr, stat);
-
-  if (!pre_expr) {
-    return forstat;
-  }
-
-  link(pre_expr, forstat);
-  return pre_expr;
+  n->body = statement();
+  return n;
 }
 
 Node parse(Token root) {
@@ -420,7 +399,7 @@ Node parse(Token root) {
 
 void print_ast(Node n, int indent) {
   for (; n; n = n->next) {
-    fprintf(stderr, "%*s [%s] %d, %s\n", indent, "", ast_str[n->op],
+    fprintf(stderr, "%*s [%s] %d, %s\n", indent, "", ast_str[n->kind],
             n->intvalue, n->sym);
     print_ast(n->left, indent + 2);
     print_ast(n->right, indent + 2);

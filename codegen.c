@@ -127,32 +127,31 @@ static void globalsym(char *s) { fprintf(stdout, "\t.comm\t%s, 8, 8\n", s); }
 
 void genglobalsym(char *s) { globalsym(s); }
 
-static int astgen(Node n, int storreg);
+static int gen_expr(Node n, int storreg);
+static void gen_stat(Node n);
 
-static int gen_if(Node n) {
-  Node cond = n->left, tstat = n->mid, fstat = n->right;
+static void gen_if(Node n) {
   char *lend = new_label();
-  char *lfalse = fstat ? new_label() : lend;
+  char *lfalse = n->els ? new_label() : lend;
   int reg;
 
   // condition
-  reg = astgen(cond, -1);
+  reg = gen_expr(n->cond, -1);
   fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
   free_reg(reg);
   fprintf(stdout, "\tjz\t%s\n", lfalse);
 
   // true statement
-  free_reg(astgen(tstat, -1));
+  gen_stat(n->then);
 
   // false statement
-  if (fstat) {
+  if (n->els) {
     fprintf(stdout, "\tjmp\t%s\n", lend);
     fprintf(stdout, "%s:\n", lfalse);
-    free_reg(astgen(fstat, -1));
+    gen_stat(n->els);
   }
 
   fprintf(stdout, "%s:\n", lend);
-  return -1;
 }
 
 typedef struct jumploc *JumpLoc;
@@ -173,35 +172,8 @@ static void iter_enter(char **lcontinue, char **lbreak) {
 
 static void iter_exit() { iterjumploc = iterjumploc->next; }
 
-static int gen_while(Node n) {
+static void gen_dowhile(Node n) {
   int reg;
-  Node cond = n->left;
-  Node stat = n->right;
-  char *lcond = new_label();
-  char *lend = new_label();
-
-  iter_enter(&lcond, &lend);
-
-  // condition
-  fprintf(stdout, "%s:\n", lcond);
-  reg = astgen(cond, -1);
-  fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
-  free_reg(reg);
-  fprintf(stdout, "\tjz\t%s\n", lend);
-
-  // statement
-  free_reg(astgen(stat, -1));
-  fprintf(stdout, "\tjmp\t%s\n", lcond);
-  fprintf(stdout, "%s:\n", lend);
-
-  iter_exit();
-  return -1;
-}
-
-static int gen_dowhile(Node n) {
-  int reg;
-  Node stat = n->left;
-  Node cond = n->right;
   char *lstat = new_label();
   char *lend = NULL;
 
@@ -209,10 +181,10 @@ static int gen_dowhile(Node n) {
 
   // statement
   fprintf(stdout, "%s:\n", lstat);
-  free_reg(astgen(stat, -1));
+  gen_stat(n->body);
 
   // condition
-  reg = astgen(cond, -1);
+  reg = gen_expr(n->cond, -1);
   fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
   free_reg(reg);
   fprintf(stdout, "\tjnz\t%s\n", lstat);
@@ -221,39 +193,32 @@ static int gen_dowhile(Node n) {
   if (lend) {
     fprintf(stdout, "%s:\n", lend);
   }
-
-  return -1;
 }
 
-static int gen_break(Node n) {
+static void gen_break(Node n) {
   if (!(*iterjumploc->lbreak)) {
     *iterjumploc->lbreak = new_label();
   }
   fprintf(stdout, "\tjmp\t%s\n", *iterjumploc->lbreak);
-  return -1;
 }
 
-static int gen_continue(Node n) {
+static void gen_continue(Node n) {
   if (!(*iterjumploc->lcontinue)) {
     *iterjumploc->lcontinue = new_label();
   }
   fprintf(stdout, "\tjmp\t%s\n", *iterjumploc->lcontinue);
-  return -1;
 }
 
-static int gen_for(Node n) {
-  Node cond_expr = n->left;
-  Node post_expr = n->mid;
-  Node stat = n->right;
+static void gen_for(Node n) {
   int reg;
   char *lcond = new_label();
   char *lend = new_label();
-  char *lcontinue = (post_expr) ? NULL : lcond;
+  char *lcontinue = (n->post) ? NULL : lcond;
 
   // cond_expr
   fprintf(stdout, "%s:\n", lcond);
-  if (cond_expr) {
-    reg = astgen(cond_expr, -1);
+  if (n->cond) {
+    reg = gen_expr(n->cond, -1);
     fprintf(stdout, "\tcmp\t$%d, %%%s\n", 0, reg_list[reg]);
     free_reg(reg);
     fprintf(stdout, "\tje\t%s\n", lend);
@@ -261,132 +226,92 @@ static int gen_for(Node n) {
 
   // stat
   iter_enter(&lcontinue, &lend);
-  free_reg(astgen(stat, -1));
+  gen_stat(n->body);
   iter_exit();
 
   // post_expr
-  if (post_expr) {
+  if (n->post) {
     if (lcontinue) {
       fprintf(stdout, "%s:\n", lcontinue);
     }
-    free_reg(astgen(post_expr, -1));
+    free_reg(gen_expr(n->post, -1));
   }
   fprintf(stdout, "\tjmp\t%s\n", lcond);
   fprintf(stdout, "%s:\n", lend);
+}
+
+static int gen_expr(Node n, int storreg) {
+  int lreg, rreg;
+  if (n->left) lreg = gen_expr(n->left, -1);
+  if (n->right) rreg = gen_expr(n->right, lreg);
+
+  switch (n->kind) {
+    case A_PRINT:
+      return print(lreg);
+    case A_ADD:
+      return add(lreg, rreg);
+    case A_SUB:
+      return sub(lreg, rreg);
+    case A_DIV:
+      return divide(lreg, rreg);
+    case A_MUL:
+      return mul(lreg, rreg);
+    case A_NUM:
+      return load(n->intvalue);
+    case A_IDENT:
+      return loadglobal(n->sym);
+    case A_LVIDENT:
+      return storglobal(n->sym, storreg);
+    case A_ASSIGN:
+      return rreg;
+    case A_EQ:
+      return compare(lreg, rreg, "e");
+    case A_NOTEQ:
+      return compare(lreg, rreg, "ne");
+    case A_GT:
+      return compare(lreg, rreg, "g");
+    case A_LT:
+      return compare(lreg, rreg, "l");
+    case A_GE:
+      return compare(lreg, rreg, "ge");
+    case A_LE:
+      return compare(lreg, rreg, "le");
+    default:
+      error("unknown ast type %s", ast_str[n->kind]);
+  }
   return -1;
 }
 
-static int gen_func(Node n) {
-  Node type = n->left;
-  Node proto = n->mid;
-  Node stat = n->right;
-  if (type || proto) {
-    error("func type or proto is not void");
+static void gen_stat(Node n) {
+  switch (n->kind) {
+    case A_BLOCK:
+      for (Node s = n->body; s; s = s->next) gen_stat(s);
+      return;
+    case A_IF:
+      return gen_if(n);
+    case A_FOR:
+      return gen_for(n);
+    case A_DOWHILE:
+      return gen_dowhile(n);
+    case A_BREAK:
+      return gen_break(n);
+    case A_CONTINUE:
+      return gen_continue(n);
+    default:
+      free_reg(gen_expr(n, -1));
+  }
+}
+
+static void gen_func(Node n) {
+  if (n->proto) {
+    error("func proto is not void");
   }
 
   fprintf(stdout, ".text\n");
-  fprintf(stdout, ".global %s\n", n->sym);
-  fprintf(stdout, "%s:\n", n->sym);
-  free_reg(astgen(stat, -1));
+  fprintf(stdout, ".global %s\n", n->funcname);
+  fprintf(stdout, "%s:\n", n->funcname);
+  gen_stat(n->body);
   fprintf(stdout, "\tret\n");
-  return -1;
-}
-
-static int astgen(Node n, int storreg) {
-  int lreg, rreg, reg = -1;
-
-  for (; n; n = n->next) {
-    reg = lreg = rreg = -1;
-
-    if (n->op == A_IF) {
-      gen_if(n);
-      continue;
-    }
-
-    if (n->op == A_WHILE) {
-      gen_while(n);
-      continue;
-    }
-
-    if (n->op == A_DOWHILE) {
-      gen_dowhile(n);
-      continue;
-    }
-
-    if (n->op == A_FOR) {
-      gen_for(n);
-      continue;
-    }
-
-    if (n->op == A_BREAK) {
-      gen_break(n);
-      continue;
-    }
-    if (n->op == A_CONTINUE) {
-      gen_continue(n);
-      continue;
-    }
-
-    if (n->op == A_FUNCDEF) {
-      gen_func(n);
-      continue;
-    }
-
-    if (n->left) lreg = astgen(n->left, -1);
-    if (n->right) rreg = astgen(n->right, lreg);
-
-    switch (n->op) {
-      case A_PRINT:
-        reg = print(lreg);
-        break;
-      case A_ADD:
-        reg = add(lreg, rreg);
-        break;
-      case A_SUB:
-        reg = sub(lreg, rreg);
-        break;
-      case A_DIV:
-        reg = divide(lreg, rreg);
-        break;
-      case A_MUL:
-        reg = mul(lreg, rreg);
-        break;
-      case A_NUM:
-        reg = load(n->intvalue);
-        break;
-      case A_IDENT:
-        reg = loadglobal(n->sym);
-        break;
-      case A_LVIDENT:
-        reg = storglobal(n->sym, storreg);
-        break;
-      case A_ASSIGN:
-        reg = rreg;
-        break;
-      case A_EQ:
-        reg = compare(lreg, rreg, "e");
-        break;
-      case A_NOTEQ:
-        reg = compare(lreg, rreg, "ne");
-        break;
-      case A_GT:
-        reg = compare(lreg, rreg, "g");
-        break;
-      case A_LT:
-        reg = compare(lreg, rreg, "l");
-        break;
-      case A_GE:
-        reg = compare(lreg, rreg, "ge");
-        break;
-      case A_LE:
-        reg = compare(lreg, rreg, "le");
-        break;
-      default:
-        error("unknown ast type %s", ast_str[n->op]);
-    }
-    if (n->next) free_reg(reg);
-  }
-  return reg;
 }
 
 void codegen(Node n) {
@@ -404,5 +329,7 @@ void codegen(Node n) {
   fprintf(stdout, "\tret\n");
 
   // translate ast to code
-  astgen(n, 0);
+  for (; n; n = n->next) {
+    gen_func(n);
+  }
 }
