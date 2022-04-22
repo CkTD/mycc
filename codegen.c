@@ -46,27 +46,15 @@ static void pop() {
 }
 
 static int label_id = 0;
-char *new_label() {
+char* new_label() {
   char buf[32];
   sprintf(buf, "L%d", label_id++);
   return string(buf);
 }
 
 // load an int constant
-static void load(int value) { fprintf(stdout, "\tmov\t$%d, %%rax\n", value); }
-
-static void loadglobal(char *id) {
-  if (!findsym(id)) {
-    error("use undefined global variable %s", id);
-  }
-  fprintf(stdout, "\tmov\t%s(%%rip), %%rax\n", id);
-}
-
-static void storglobal(char *id) {
-  if (!findsym(id)) {
-    error("use undefined global variable %s", id);
-  }
-  fprintf(stdout, "\tmov\t%%rax, %s(%%rip)\n", id);
+static void load(int value) {
+  fprintf(stdout, "\tmov\t$%d, %%rax\n", value);
 }
 
 // https://stackoverflow.com/questions/38335212/calling-printf-in-x86-64-using-gnu-assembler#answer-38335743
@@ -80,30 +68,56 @@ static void print() {
 // binary expressions
 // get operand from: %rax(left) and %rdi(right)
 // store result to : %rax
-static void add() { fprintf(stdout, "\tadd\t%%rdi, %%rax\n"); }
-static void sub() { fprintf(stdout, "\tsub\t%%rdi, %%rax\n"); }
-static void mul() { fprintf(stdout, "\timul\t%%rdi, %%rax\n"); }
+static void add() {
+  fprintf(stdout, "\tadd\t%%rdi, %%rax\n");
+}
+static void sub() {
+  fprintf(stdout, "\tsub\t%%rdi, %%rax\n");
+}
+static void mul() {
+  fprintf(stdout, "\timul\t%%rdi, %%rax\n");
+}
 static void divide() {
   fprintf(stdout, "\tcqo\n");
   fprintf(stdout, "\tdiv\t%%rdi\n");
 }
 // e, ne, g, ge, l, le
-static void compare(char *cd) {
+static void compare(char* cd) {
   fprintf(stdout, "\tcmp\t%%rdi, %%rax\n");
   fprintf(stdout, "\tset%s\t%%al\n", cd);
   fprintf(stdout, "\tand\t$255, %%rax\n");
 }
 
-static void globalsym(char *s) { fprintf(stdout, "\t.comm\t%s, 8, 8\n", s); }
+static void gen_addr(Node n) {
+  if (n->kind == A_VAR) {
+    fprintf(stdout, "\tlea\t-%d(%%rbp), %%rax\n", n->var->offset);
+    return;
+  }
+  error("not a lvalue");
+}
 
-void genglobalsym(char *s) { globalsym(s); }
+static void gen_load(Node n) {
+  if (ty(n) == inttype) {
+    fprintf(stdout, "\tmov\t(%%rax), %%rax\n");
+    return;
+  }
+  error("not a lvalue");
+}
+
+static void gen_store(Node n) {
+  if (ty(n) == inttype) {
+    fprintf(stdout, "\tmov\t%%rdi, (%%rax)\n");
+    return;
+  }
+  error("store unknown type");
+}
 
 static void gen_expr(Node n);
 static void gen_stat(Node n);
 
 static void gen_if(Node n) {
-  char *lend = new_label();
-  char *lfalse = n->els ? new_label() : lend;
+  char* lend = new_label();
+  char* lfalse = n->els ? new_label() : lend;
 
   // condition
   gen_expr(n->cond);
@@ -123,15 +137,15 @@ static void gen_if(Node n) {
   fprintf(stdout, "%s:\n", lend);
 }
 
-typedef struct jumploc *JumpLoc;
+typedef struct jumploc* JumpLoc;
 struct jumploc {
-  char **lcontinue;
-  char **lbreak;
+  char** lcontinue;
+  char** lbreak;
   JumpLoc next;
 };
 JumpLoc iterjumploc;
 
-static void iter_enter(char **lcontinue, char **lbreak) {
+static void iter_enter(char** lcontinue, char** lbreak) {
   JumpLoc j = malloc(sizeof(struct jumploc));
   j->lbreak = lbreak;
   j->lcontinue = lcontinue;
@@ -139,11 +153,13 @@ static void iter_enter(char **lcontinue, char **lbreak) {
   iterjumploc = j;
 }
 
-static void iter_exit() { iterjumploc = iterjumploc->next; }
+static void iter_exit() {
+  iterjumploc = iterjumploc->next;
+}
 
 static void gen_dowhile(Node n) {
-  char *lstat = new_label();
-  char *lend = NULL;
+  char* lstat = new_label();
+  char* lend = NULL;
 
   iter_enter(&lstat, &lend);
 
@@ -177,11 +193,16 @@ static void gen_continue(Node n) {
 }
 
 static void gen_for(Node n) {
-  char *lcond = new_label();
-  char *lend = new_label();
-  char *lcontinue = (n->post) ? NULL : lcond;
+  char* lcond = new_label();
+  char* lend = new_label();
+  char* lcontinue = (n->post) ? NULL : lcond;
 
-  // cond_expr
+  // init
+  if (n->init) {
+    gen_stat(n->init);
+  }
+
+  // condition
   fprintf(stdout, "%s:\n", lcond);
   if (n->cond) {
     gen_expr(n->cond);
@@ -199,7 +220,7 @@ static void gen_for(Node n) {
     if (lcontinue) {
       fprintf(stdout, "%s:\n", lcontinue);
     }
-    gen_expr(n->post);
+    gen_stat(n->post);
   }
   fprintf(stdout, "\tjmp\t%s\n", lcond);
   fprintf(stdout, "%s:\n", lend);
@@ -207,18 +228,19 @@ static void gen_for(Node n) {
 
 static void gen_expr(Node n) {
   switch (n->kind) {
-    case A_PRINT:
-      gen_expr(n->left);
-      return print();
     case A_NUM:
       return load(n->intvalue);
-    case A_IDENT:
-      return loadglobal(n->sym);
-    case A_LVIDENT:
-      return storglobal(n->sym);
+    case A_VAR:
+      gen_addr(n);
+      return gen_load(n);
     case A_ASSIGN:
       gen_expr(n->right);
-      return gen_expr(n->left);
+      push();
+      gen_addr(n->left);
+      pop();
+      gen_store(n->left);
+      fprintf(stdout, "\tmov\t%%rdi, %%rax\n");
+      return;
     case A_ADD:
     case A_SUB:
     case A_DIV:
@@ -235,26 +257,40 @@ static void gen_expr(Node n) {
       push();
       gen_expr(n->left);
       pop();
-      if (n->kind == A_ADD) return add();
-      if (n->kind == A_SUB) return sub();
-      if (n->kind == A_MUL) return mul();
-      if (n->kind == A_DIV) return divide();
-      if (n->kind == A_EQ) return compare("e");
-      if (n->kind == A_NE) return compare("ne");
-      if (n->kind == A_GT) return compare("g");
-      if (n->kind == A_LT) return compare("l");
-      if (n->kind == A_GE) return compare("ge");
-      if (n->kind == A_LE) return compare("le");
+      if (n->kind == A_ADD)
+        return add();
+      if (n->kind == A_SUB)
+        return sub();
+      if (n->kind == A_MUL)
+        return mul();
+      if (n->kind == A_DIV)
+        return divide();
+      if (n->kind == A_EQ)
+        return compare("e");
+      if (n->kind == A_NE)
+        return compare("ne");
+      if (n->kind == A_GT)
+        return compare("g");
+      if (n->kind == A_LT)
+        return compare("l");
+      if (n->kind == A_GE)
+        return compare("ge");
+      if (n->kind == A_LE)
+        return compare("le");
     default:
-      error("unknown ast type %s", ast_str[n->kind]);
+      error("unknown ast node");
   }
 }
 
 static void gen_stat(Node n) {
   switch (n->kind) {
     case A_BLOCK:
-      for (Node s = n->body; s; s = s->next) gen_stat(s);
+      for (Node s = n->body; s; s = s->next)
+        gen_stat(s);
       return;
+    case A_PRINT:
+      gen_expr(n->left);
+      return print();
     case A_IF:
       return gen_if(n);
     case A_FOR:
@@ -265,9 +301,20 @@ static void gen_stat(Node n) {
       return gen_break(n);
     case A_CONTINUE:
       return gen_continue(n);
+    case A_EXPR_STAT:
+      return gen_expr(n->left);
     default:
       return gen_expr(n);
   }
+}
+
+static void handle_lvars(Node n) {
+  int offset = 0;
+  for (Var v = n->locals; v; v = v->next) {
+    offset += v->type->size;
+    v->offset = offset;
+  }
+  n->stacksize = offset;
 }
 
 static void gen_func(Node n) {
@@ -275,10 +322,23 @@ static void gen_func(Node n) {
     error("func proto is not void");
   }
 
+  handle_lvars(n);
+
   fprintf(stdout, ".text\n");
   fprintf(stdout, ".global %s\n", n->funcname);
   fprintf(stdout, "%s:\n", n->funcname);
+
+  // Prologue
+  fprintf(stdout, "\tpush\t%%rbp\n");
+  fprintf(stdout, "\tmov\t%%rsp, %%rbp\n");
+  fprintf(stdout, "\tsub\t$%d, %%rsp\n", n->stacksize);
+
   gen_stat(n->body);
+
+  // Epilogue
+  fprintf(stdout, "\tadd\t$%d, %%rsp\n", n->stacksize);
+  fprintf(stdout, "\tmov\t%%rbp, %%rsp\n");
+  fprintf(stdout, "\tpop\t%%rbp\n");
   fprintf(stdout, "\tret\n");
 }
 

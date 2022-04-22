@@ -1,7 +1,24 @@
 // utils
-void error(char *, ...);
-char *stringn(char *s, int n);
-char *string(char *s);
+void error(char*, ...);
+char* stringn(char* s, int n);
+char* string(char* s);
+
+typedef struct type* Type;
+typedef struct node* Node;
+
+// type
+enum {
+  TY_INT,
+};
+extern Type inttype;
+Type ty(Node n);
+struct type {
+  int kind;
+  int size;
+  Type base;
+};
+
+int is_int(Type ty);
 
 // tokenize
 enum {
@@ -40,30 +57,26 @@ enum {
   TK_NUM,
 };
 
-extern const char *token_str[];
-
-typedef struct token *Token;
+typedef struct token* Token;
 struct token {
   int kind;
   Token next;
 
   int value;
-  char *name;
+  char* name;
 };
 
-Token tokenize(char *input);
-void print_token(Token t);
+extern const char* token_str[];
+Token tokenize(char* input);
 
-// Symbol table
-typedef struct symbol *Symbol;
-struct symbol {
-  char *name;
+// parse
+typedef struct var* Var;
+struct var {
+  Var next;
+  Type type;
+  char* name;
+  int offset;
 };
-
-void mksym(char *s);
-Symbol findsym(char *s);
-
-// AST
 enum {
   // 16 right
   A_ASSIGN,
@@ -82,9 +95,10 @@ enum {
   A_MUL,
   A_DIV,
   // others
+  A_EXPR_STAT,
   A_NUM,
   A_PRINT,
-  A_IDENT,
+  A_VAR,
   A_LVIDENT,
   A_IF,
   A_DOWHILE,
@@ -95,12 +109,10 @@ enum {
   A_BLOCK,
 };
 
-extern char *ast_str[];
-
-typedef struct node *Node;
 struct node {
   int kind;
   Node next;
+  Type type;
 
   // Used by expr(A_ASSIGN, A_ADD, ...)
   Node left;
@@ -120,17 +132,17 @@ struct node {
   int intvalue;
 
   // A_FUNCTION
-  Node *proto;
-  char *funcname;
+  char* funcname;
+  Node* proto;
+  Var locals;
+  int stacksize;
 
-  char *sym;
+  // A_VAR
+  Var var;
+  char* name;
 };
 
 Node parse(Token t);
-void print_ast(Node r, int indent);
 
-//
-//
-
-void genglobalsym(char *s);
+// code generate
 void codegen(Node r);
