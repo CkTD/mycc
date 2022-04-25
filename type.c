@@ -29,6 +29,9 @@ Type ty(Node n) {
     case A_LE:
       n->type = inttype;
       break;
+    case A_ASSIGN:
+      n->type = ty(n->right);
+      break;
   }
   return n->type;
 }

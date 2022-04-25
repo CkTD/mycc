@@ -31,9 +31,13 @@ static Var findvar(char* name) {
 // https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
 // C syntax
 // https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm
+// https://www.dii.uchile.cl/~daespino/files/Iso_C_1999_definition.pdf
 
 // trans_unit:     { func_def }
-// func_def:       'void' identifier '(' ')' comp_stat
+// func_def:       type_spec identifier '(' param_list ')' comp_stat
+// type_spec:      'int'
+// param_list:     param_declaration { ',' param_declaration }
+// param_declaration: { type_spec }+ identifier
 // statement:      expr_stat | print_stat | comp_stat
 //                 selection-stat | iteration-stat | jump_stat
 // comp_stat:      '{' {decl}* {stat}* '}'
@@ -46,7 +50,8 @@ static Var findvar(char* name) {
 // relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}
 // sum_expr        :mul_expr { '+'|'-' mul_exp }
 // mul_exp:        primary { '*'|'/' primary }
-// primary:        identifier | number  | '(' expression ')'
+// primary:        identifier func_args? | number  | '(' expression ')'
+// func_args:      '(' expression { ',' expression } ')'
 // selection-stat: if_stat
 // if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
 // iteration-stat: while_stat | dowhile_stat | for_stat
@@ -54,35 +59,33 @@ static Var findvar(char* name) {
 // dowhile_stat:   'do' statement 'while' '(' expression ')';
 // for_stat:       'for' '(' {expression}; {expression}; {expression}')'
 //                 statement
-// jump_stat:      break ';' | continue ';'
+// jump_stat:      break ';' | continue ';' | 'return' expression? ';'
 
 static Token t;  // token to be processed
+
 static int match(int kind) {
   return t->kind == kind;
 }
 
-static void expect(int kind) {
+static Token expect(int kind) {
+  Token c = t;
+
   if (!match(kind)) {
     error("parse: token of %s expected but got %s", token_str[kind],
           token_str[t->kind]);
   }
-}
-
-static void advance() {
   t = t->next;
+  return c;
 }
 
-static void skip(int kind) {
-  expect(kind);
-  advance();
-}
+static Token consume(int kind) {
+  Token c = t;
 
-static int consume(int kind) {
   if (match(kind)) {
-    advance();
-    return 1;
+    t = t->next;
+    return c;
   }
-  return 0;
+  return NULL;
 }
 
 static Node mknode(int kind) {
@@ -132,18 +135,42 @@ static Node trans_unit() {
   return head.next;
 }
 
+Type type_spec() {
+  if (consume(TK_INT))
+    return inttype;
+  if (consume(TK_VOID))
+    return inttype;
+
+  error("unknown type %s", t->name);
+  return NULL;
+}
+
+Var param_list() {
+  Var head = NULL;
+  expect(TK_OPENING_PARENTHESES);
+  while (!consume(TK_CLOSING_PARENTHESES)) {
+    Type ty = type_spec();
+    Var v = mklvar(expect(TK_IDENT)->name, ty);
+    v->next = head;
+    head = v;
+    if (!match(TK_CLOSING_PARENTHESES))
+      expect(TK_COMMA);
+  }
+  return head;
+}
+
 static Node function() {
   Node n = mknode(A_FUNCDEF);
-  locals = NULL;
-  skip(TK_VOID);
-  expect(TK_IDENT);
-  n->funcname = t->name;
-  skip(TK_IDENT);
-  skip(TK_OPENING_PARENTHESES);
-  n->proto = NULL;
-  skip(TK_CLOSING_PARENTHESES);
+  n->type = type_spec();
+
+  n->funcname = expect(TK_IDENT)->name;
+
+  locals = param_list();
+  n->params = locals;
+
   n->body = comp_stat();
   n->locals = locals;
+
   return n;
 }
 
@@ -155,8 +182,10 @@ static Node statement() {
 
   // print statement
   if (consume(TK_PRINT)) {
-    Node n = mkuniary(A_PRINT, expression());
-    skip(TK_SIMI);
+    Node n = mknode(A_FUNCCALL);
+    n->args = expression();
+    n->callee = "print";
+    expect(TK_SIMI);
     return n;
   }
 
@@ -181,15 +210,21 @@ static Node statement() {
   }
 
   // jump_stat
-  if (match(TK_BREAK)) {
-    skip(TK_BREAK);
-    skip(TK_SIMI);
+  if (consume(TK_BREAK)) {
+    expect(TK_SIMI);
     return mknode(A_BREAK);
   }
-  if (match(TK_CONTINUE)) {
-    skip(TK_CONTINUE);
-    skip(TK_SIMI);
+  if (consume(TK_CONTINUE)) {
+    expect(TK_SIMI);
     return mknode(A_CONTINUE);
+  }
+  if (consume(TK_RETURN)) {
+    Node n = mknode(A_RETURN);
+    if (consume(TK_SIMI))
+      return n;
+    n->left = expression();
+    expect(TK_SIMI);
+    return n;
   }
 
   // expr statement
@@ -200,7 +235,7 @@ static Node comp_stat() {
   struct node head;
   Node last = &head;
   last->next = NULL;
-  skip(TK_OPENING_BRACES);
+  expect(TK_OPENING_BRACES);
   while (t->kind != TK_CLOSING_BRACES) {
     if (match(TK_INT)) {
       last->next = decl();
@@ -210,7 +245,7 @@ static Node comp_stat() {
     while (last->next)
       last = last->next;
   }
-  skip(TK_CLOSING_BRACES);
+  expect(TK_CLOSING_BRACES);
   Node n = mknode(A_BLOCK);
   n->body = head.next;
   return n;
@@ -218,10 +253,10 @@ static Node comp_stat() {
 
 static Node if_stat() {
   Node n = mknode(A_IF);
-  skip(TK_IF);
-  skip(TK_OPENING_PARENTHESES);
+  expect(TK_IF);
+  expect(TK_OPENING_PARENTHESES);
   n->cond = expression();
-  skip(TK_CLOSING_PARENTHESES);
+  expect(TK_CLOSING_PARENTHESES);
   n->then = statement();
   if (consume(TK_ELSE)) {
     n->els = statement();
@@ -231,50 +266,48 @@ static Node if_stat() {
 
 static Node while_stat() {
   Node n = mknode(A_FOR);
-  skip(TK_WHILE);
-  skip(TK_OPENING_PARENTHESES);
+  expect(TK_WHILE);
+  expect(TK_OPENING_PARENTHESES);
   n->cond = eq_expr();
-  skip(TK_CLOSING_PARENTHESES);
+  expect(TK_CLOSING_PARENTHESES);
   n->body = statement();
   return n;
 }
 
 static Node dowhile_stat() {
   Node n = mknode(A_DOWHILE);
-  skip(TK_DO);
+  expect(TK_DO);
   n->body = statement();
-  skip(TK_WHILE);
-  skip(TK_OPENING_PARENTHESES);
+  expect(TK_WHILE);
+  expect(TK_OPENING_PARENTHESES);
   n->cond = expression();
-  skip(TK_CLOSING_PARENTHESES);
-  skip(TK_SIMI);
+  expect(TK_CLOSING_PARENTHESES);
+  expect(TK_SIMI);
   return n;
 }
 
 static Node for_stat() {
   Node n = mknode(A_FOR);
-  skip(TK_FOR);
-  skip(TK_OPENING_PARENTHESES);
+  expect(TK_FOR);
+  expect(TK_OPENING_PARENTHESES);
   if (!consume(TK_SIMI))
     n->init = expr_stat();
   if (!consume(TK_SIMI)) {
     n->cond = expression();
-    skip(TK_SIMI);
+    expect(TK_SIMI);
   }
   if (!consume(TK_CLOSING_PARENTHESES)) {
     n->post = mkuniary(A_EXPR_STAT, expression());
-    skip(TK_CLOSING_PARENTHESES);
+    expect(TK_CLOSING_PARENTHESES);
   }
   n->body = statement();
   return n;
 }
 
 static Node decl() {
-  skip(TK_INT);
-  expect(TK_IDENT);
-  mklvar(t->name, inttype);
-  advance();
-  skip(TK_SIMI);
+  expect(TK_INT);
+  mklvar(expect(TK_IDENT)->name, inttype);
+  expect(TK_SIMI);
   return NULL;
 }
 
@@ -284,7 +317,7 @@ static Node expr_stat() {
   }
 
   Node n = expression();
-  skip(TK_SIMI);
+  expect(TK_SIMI);
   return mkuniary(A_EXPR_STAT, n);
 }
 
@@ -302,7 +335,7 @@ static Node assign_expr() {
     error("lvalue expected!");
   }
   n->kind = A_VAR;
-  skip(TK_EQUAL);
+  expect(TK_EQUAL);
 
   return mkbinary(A_ASSIGN, n, expression());
 }
@@ -363,16 +396,38 @@ static Node mul_expr() {
   }
 }
 
+static Node func_arg() {
+  struct node head = {};
+  Node cur = &head;
+
+  expect(TK_OPENING_PARENTHESES);
+  while (!consume(TK_CLOSING_PARENTHESES)) {
+    cur->next = expression();
+    cur = cur->next;
+    if (!match(TK_CLOSING_PARENTHESES))
+      expect(TK_COMMA);
+  };
+  return head.next;
+}
+
 static Node primary() {
-  if (match(TK_NUM)) {
+  Token tok;
+
+  if ((tok = consume(TK_NUM))) {
     Node n = mknode(A_NUM);
-    n->intvalue = t->value;
-    advance();
+    n->intvalue = tok->value;
     return n;
   }
 
-  if (match(TK_IDENT)) {
-    Var v = findvar(t->name);
+  if ((tok = consume(TK_IDENT))) {
+    if (match(TK_OPENING_PARENTHESES)) {
+      Node n = mknode(A_FUNCCALL);
+      n->callee = tok->name;
+      n->args = func_arg();
+      return n;
+    }
+
+    Var v = findvar(tok->name);
     if (!v)
       error("undefined variable");
     return variable(v);
@@ -380,7 +435,7 @@ static Node primary() {
 
   if (consume(TK_OPENING_PARENTHESES)) {
     Node n = eq_expr();
-    skip(TK_CLOSING_PARENTHESES);
+    expect(TK_CLOSING_PARENTHESES);
     return n;
   }
 
@@ -391,7 +446,6 @@ static Node primary() {
 static Node variable(Var v) {
   Node n = mknode(A_VAR);
   n->var = v;
-  skip(TK_IDENT);
   return n;
 }
 

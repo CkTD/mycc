@@ -4,7 +4,7 @@
 #include "stdlib.h"
 #include "string.h"
 
-const char *token_str[] = {[TK_OPENING_BRACES] = "{",
+const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_CLOSING_BRACES] = "}",
                            [TK_OPENING_PARENTHESES] = "(",
                            [TK_CLOSING_PARENTHESES] = ")",
@@ -34,7 +34,7 @@ const char *token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_EOI] = "eoi",
                            [TK_NUM] = "number"};
 
-Token mktoken(int kind, char *name) {
+Token mktoken(int kind, char* name) {
   Token t = malloc(sizeof(struct token));
   t->kind = kind;
   t->name = name;
@@ -42,7 +42,7 @@ Token mktoken(int kind, char *name) {
   return t;
 }
 
-Token tokenize(char *p) {
+Token tokenize(char* p) {
   struct token head = {};
   Token last = &head;
   Token n;
@@ -53,7 +53,7 @@ Token tokenize(char *p) {
     // number
     else if (isdigit(*p)) {  // 0-9
       n = mktoken(TK_NUM, stringn(p, 0));
-      char *b = p;
+      char* b = p;
       while (isdigit(*++p))
         ;
       n = mktoken(TK_NUM, stringn(b, p - b));
@@ -71,6 +71,9 @@ Token tokenize(char *p) {
       p++;
     } else if (*p == ')') {
       n = mktoken(TK_CLOSING_PARENTHESES, stringn(p, 1));
+      p++;
+    } else if (*p == ',') {
+      n = mktoken(TK_COMMA, stringn(p, 1));
       p++;
     } else if (*p == '+') {
       n = mktoken(TK_ADD, stringn(p, 1));
@@ -144,10 +147,14 @@ Token tokenize(char *p) {
     } else if (p[0] == 'v' && p[1] == 'o' && p[2] == 'i' && p[3] == 'd') {
       n = mktoken(TK_VOID, string("void"));
       p += 4;
+    } else if (p[0] == 'r' && p[1] == 'e' && p[2] == 't' && p[3] == 'u' &&
+               p[4] == 'r' && p[5] == 'n') {
+      n = mktoken(TK_RETURN, string("return"));
+      p += 6;
     }
     // identifer
     else if (isalpha(*p)) {
-      char *b = p;
+      char* b = p;
       do {
         p++;
       } while (isalpha(*p) || isdigit(*p) || *p == '_');

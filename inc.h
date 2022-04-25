@@ -27,6 +27,7 @@ enum {
   TK_CLOSING_BRACES,
   TK_OPENING_PARENTHESES,
   TK_CLOSING_PARENTHESES,
+  TK_COMMA,
   TK_SIMI,
   TK_STAR,
   TK_ADD,
@@ -51,6 +52,7 @@ enum {
   TK_BREAK,
   TK_CONTINUE,
   TK_VOID,
+  TK_RETURN,
   //
   TK_EOI,
   // constant
@@ -105,7 +107,9 @@ enum {
   A_FOR,
   A_BREAK,
   A_CONTINUE,
+  A_RETURN,
   A_FUNCDEF,
+  A_FUNCCALL,
   A_BLOCK,
 };
 
@@ -133,9 +137,13 @@ struct node {
 
   // A_FUNCTION
   char* funcname;
-  Node* proto;
+  Var params;
   Var locals;
   int stacksize;
+
+  // A_FUNCTIONCALL
+  char* callee;
+  Node args;
 
   // A_VAR
   Var var;
