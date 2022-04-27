@@ -31,6 +31,7 @@ const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_BREAK] = "break",
                            [TK_CONTINUE] = "continue",
                            [TK_VOID] = "void",
+                           [TK_RETURN] = "return",
                            [TK_EOI] = "eoi",
                            [TK_NUM] = "number"};
 
@@ -112,53 +113,37 @@ Token tokenize(char* p) {
       n = mktoken(TK_LESS, stringn(p, 1));
       p++;
     }
-    // keywords
-    else if (p[0] == 'p' && p[1] == 'r' && p[2] == 'i' && p[3] == 'n' &&
-             p[4] == 't') {
-      n = mktoken(TK_PRINT, string("print"));
-      p += 5;
-    } else if (p[0] == 'i' && p[1] == 'n' && p[2] == 't') {
-      n = mktoken(TK_INT, string("int"));
-      p += 3;
-    } else if (p[0] == 'i' && p[1] == 'f') {
-      n = mktoken(TK_IF, string("if"));
-      p += 2;
-    } else if (p[0] == 'e' && p[1] == 'l' && p[2] == 's' && p[3] == 'e') {
-      n = mktoken(TK_ELSE, string("else"));
-      p += 4;
-    } else if (p[0] == 'w' && p[1] == 'h' && p[2] == 'i' && p[3] == 'l' &&
-               p[4] == 'e') {
-      n = mktoken(TK_WHILE, string("while"));
-      p += 5;
-    } else if (p[0] == 'd' && p[1] == 'o') {
-      n = mktoken(TK_DO, string("do"));
-      p += 2;
-    } else if (p[0] == 'f' && p[1] == 'o' && p[2] == 'r') {
-      n = mktoken(TK_FOR, string("for"));
-      p += 3;
-    } else if (p[0] == 'b' && p[1] == 'r' && p[2] == 'e' && p[3] == 'a' &&
-               p[4] == 'k') {
-      n = mktoken(TK_BREAK, string("break"));
-      p += 5;
-    } else if (p[0] == 'c' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' &&
-               p[4] == 'i' && p[5] == 'n' && p[6] == 'u' && p[7] == 'e') {
-      n = mktoken(TK_CONTINUE, string("continue"));
-      p += 8;
-    } else if (p[0] == 'v' && p[1] == 'o' && p[2] == 'i' && p[3] == 'd') {
-      n = mktoken(TK_VOID, string("void"));
-      p += 4;
-    } else if (p[0] == 'r' && p[1] == 'e' && p[2] == 't' && p[3] == 'u' &&
-               p[4] == 'r' && p[5] == 'n') {
-      n = mktoken(TK_RETURN, string("return"));
-      p += 6;
-    }
-    // identifer
+    // keywords or  identifer
     else if (isalpha(*p)) {
       char* b = p;
       do {
         p++;
       } while (isalpha(*p) || isdigit(*p) || *p == '_');
-      n = mktoken(TK_IDENT, stringn(b, p - b));
+      char* name = stringn(b, p - b);
+      if (name == string("print"))
+        n = mktoken(TK_PRINT, name);
+      else if (name == string("if"))
+        n = mktoken(TK_IF, name);
+      else if (name == string("else"))
+        n = mktoken(TK_ELSE, name);
+      else if (name == string("while"))
+        n = mktoken(TK_WHILE, name);
+      else if (name == string("do"))
+        n = mktoken(TK_DO, name);
+      else if (name == string("for"))
+        n = mktoken(TK_FOR, name);
+      else if (name == string("break"))
+        n = mktoken(TK_BREAK, name);
+      else if (name == string("continue"))
+        n = mktoken(TK_CONTINUE, name);
+      else if (name == string("return"))
+        n = mktoken(TK_RETURN, name);
+      else if (name == string("void"))
+        n = mktoken(TK_VOID, name);
+      else if (name == string("int"))
+        n = mktoken(TK_INT, name);
+      else
+        n = mktoken(TK_IDENT, name);
     } else {
       error("tokenize: syntax error, unknown %c", *p);
     }
