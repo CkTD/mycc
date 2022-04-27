@@ -1,4 +1,6 @@
-// utils
+/*************
+ *   utils   *
+ *************/
 void error(char*, ...);
 char* stringn(char* s, int n);
 char* string(char* s);
@@ -6,7 +8,9 @@ char* string(char* s);
 typedef struct type* Type;
 typedef struct node* Node;
 
-// type
+/*************
+ *   type    *
+ *************/
 enum {
   TY_INT,
 };
@@ -20,7 +24,9 @@ struct type {
 
 int is_int(Type ty);
 
-// tokenize
+/*************
+ * tokenize  *
+ *************/
 enum {
   // punc
   TK_OPENING_BRACES,
@@ -71,13 +77,16 @@ struct token {
 extern const char* token_str[];
 Token tokenize(char* input);
 
-// parse
+/*************
+ *   parse   *
+ *************/
 typedef struct var* Var;
 struct var {
   Var next;
   Type type;
   char* name;
   int offset;
+  int is_global;
 };
 enum {
   // 16 right
@@ -137,6 +146,7 @@ struct node {
 
   // A_FUNCTION
   char* funcname;
+  Var globals;
   Var params;
   Var locals;
   int stacksize;
@@ -150,7 +160,11 @@ struct node {
   char* name;
 };
 
+// global variables are accumulated to this list during parsing
+extern Var globals;
 Node parse(Token t);
 
-// code generate
+/*********************
+ *   code generate   *
+ *********************/
 void codegen(Node r);

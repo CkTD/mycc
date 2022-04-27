@@ -1,0 +1,12 @@
+int a;
+
+void pglobala() {
+    print a;
+}
+
+void main() {
+    int a;
+    a=2;
+    print a;
+    pglobala();
+}

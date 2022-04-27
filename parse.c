@@ -3,64 +3,9 @@
 #include "stdlib.h"
 #include "string.h"
 
-static Var locals;
-
-static Var mkvar(char* name, Type ty) {
-  Var v = calloc(1, sizeof(struct var));
-  v->name = name;
-  v->type = ty;
-  return v;
-}
-
-static Var mklvar(char* name, Type ty) {
-  Var v = mkvar(name, ty);
-  v->next = locals;
-  locals = v;
-  return v;
-}
-
-static Var findvar(char* name) {
-  for (Var v = locals; v; v = v->next) {
-    if (strlen(name) == strlen(v->name) && !strcmp(name, v->name))
-      return v;
-  }
-  return NULL;
-}
-
-// C operator precedence
-// https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence
-// C syntax
-// https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm
-// https://www.dii.uchile.cl/~daespino/files/Iso_C_1999_definition.pdf
-
-// trans_unit:     { func_def }
-// func_def:       type_spec identifier '(' param_list ')' comp_stat
-// type_spec:      'int'
-// param_list:     param_declaration { ',' param_declaration }
-// param_declaration: { type_spec }+ identifier
-// statement:      expr_stat | print_stat | comp_stat
-//                 selection-stat | iteration-stat | jump_stat
-// comp_stat:      '{' {decl}* {stat}* '}'
-// decl:           'int' identifier;
-// print_stat:     'print' expr;
-// expr_stat:      {expression}? ;
-// expression:     assign_expr
-// assign_expr:    equality_expr { '=' equality_expr }
-// equality_expr:  relational_expr { '==' | '!='  relational_expr }
-// relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}
-// sum_expr        :mul_expr { '+'|'-' mul_exp }
-// mul_exp:        primary { '*'|'/' primary }
-// primary:        identifier func_args? | number  | '(' expression ')'
-// func_args:      '(' expression { ',' expression } ')'
-// selection-stat: if_stat
-// if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
-// iteration-stat: while_stat | dowhile_stat | for_stat
-// while_stat:     'while' '(' expr_stat ')' statement
-// dowhile_stat:   'do' statement 'while' '(' expression ')';
-// for_stat:       'for' '(' {expression}; {expression}; {expression}')'
-//                 statement
-// jump_stat:      break ';' | continue ';' | 'return' expression? ';'
-
+/***********************
+ * handle input tokens *
+ ***********************/
 static Token t;  // token to be processed
 
 static int match(int kind) {
@@ -88,6 +33,9 @@ static Token consume(int kind) {
   return NULL;
 }
 
+/*******************
+ * create AST Node *
+ *******************/
 static Node mknode(int kind) {
   Node n = calloc(1, sizeof(struct node));
   n->kind = kind;
@@ -106,8 +54,90 @@ static Node mkbinary(int kind, Node left, Node right) {
   return n;
 }
 
+/*************
+ * variables *
+ *************/
+static Var locals;
+Var globals;
+
+static Var findvarintable(char* name, Var table) {
+  for (Var v = table; v; v = v->next) {
+    if (strlen(name) == strlen(v->name) && !strcmp(name, v->name))
+      return v;
+  }
+  return NULL;
+}
+
+static Var findvar(char* name) {
+  Var v = findvarintable(name, locals);
+  return v ? v : findvarintable(name, globals);
+}
+
+static Var mkvar(char* name, Type ty) {
+  Var v = calloc(1, sizeof(struct var));
+  v->name = name;
+  v->type = ty;
+  return v;
+}
+
+static Var mklvar(char* name, Type ty) {
+  if (findvarintable(name, locals))
+    error("redefine local variable \"%s\"", name);
+
+  Var v = mkvar(name, ty);
+  v->is_global = 0;
+  v->next = locals;
+  locals = v;
+  return v;
+}
+
+static Var mkgvar(char* name, Type ty) {
+  if (findvarintable(name, locals))
+    error("redefine global variable \"%s\"", name);
+
+  Var v = mkvar(name, ty);
+  v->is_global = 1;
+  v->next = globals;
+  globals = v;
+  return v;
+}
+
+/*****************************
+ * recursive parse procedure *
+ *****************************/
+// trans_unit:     { func_def | declaration }*
+// declaration:    type_spec identifier;
+// type_spec:      'int'
+// func_def:       type_spec identifier '(' param_list ')' comp_stat
+// param_list:     param_declaration { ',' param_declaration }
+// param_declaration: { type_spec }+ identifier
+// statement:      expr_stat | print_stat | comp_stat
+//                 selection-stat | iteration-stat | jump_stat
+// selection-stat: if_stat
+// if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
+// iteration-stat: while_stat | dowhile_stat | for_stat
+// while_stat:     'while' '(' expr_stat ')' statement
+// dowhile_stat:   'do' statement 'while' '(' expression ')';
+// for_stat:       'for' '(' {expression}; {expression}; {expression}')'
+//                 statement
+// jump_stat:      break ';' | continue ';' | 'return' expression? ';'
+// comp_stat:      '{' {declaration}* {stat}* '}'
+// print_stat:     'print' expr;
+// expr_stat:      {expression}? ;
+// expression:     assign_expr
+// assign_expr:    equality_expr { '=' equality_expr }
+// equality_expr:  relational_expr { '==' | '!='  relational_expr }
+// relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}
+// sum_expr        :mul_expr { '+'|'-' mul_exp }
+// mul_exp:        primary { '*'|'/' primary }
+// primary:        identifier func_args? | number  | '(' expression ')'
+// func_args:      '(' expression { ',' expression } ')'
+
 static Node trans_unit();
+static Node declaration();
+Type type_spec();
 static Node function();
+Var param_list();
 static Node statement();
 static Node comp_stat();
 static Node if_stat();
@@ -115,7 +145,6 @@ static Node while_stat();
 static Node dowhile_stat();
 static Node for_stat();
 static Node expr_stat();
-static Node decl();
 static Node expression();
 static Node assign_expr();
 static Node eq_expr();
@@ -123,16 +152,40 @@ static Node rel_expr();
 static Node sum_expr();
 static Node mul_expr();
 static Node primary();
+static Node func_arg();
 static Node variable();
+
+static int is_function;
+static int check_next_top_level_item() {
+  Token back = t;
+  type_spec();
+  is_function = consume(TK_IDENT) && consume(TK_OPENING_PARENTHESES);
+  t = back;
+  return is_function;
+}
 
 static Node trans_unit() {
   struct node head;
   Node last = &head;
   last->next = NULL;
   while (t->kind != TK_EOI) {
-    last = last->next = function();
+    check_next_top_level_item();
+    if (is_function)  // function
+      last = last->next = function();
+    else  // global variable
+      declaration();
   }
   return head.next;
+}
+
+static Node declaration() {
+  Type ty = type_spec();
+  if (is_function)
+    mklvar(expect(TK_IDENT)->name, ty);
+  else
+    mkgvar(expect(TK_IDENT)->name, ty);
+  expect(TK_SIMI);
+  return NULL;
 }
 
 Type type_spec() {
@@ -143,6 +196,18 @@ Type type_spec() {
 
   error("unknown type %s", t->name);
   return NULL;
+}
+
+static Node function() {
+  Node n = mknode(A_FUNCDEF);
+  n->type = type_spec();
+  n->funcname = expect(TK_IDENT)->name;
+
+  locals = param_list();
+  n->params = locals;
+  n->body = comp_stat();
+  n->locals = locals;
+  return n;
 }
 
 Var param_list() {
@@ -157,21 +222,6 @@ Var param_list() {
       expect(TK_COMMA);
   }
   return head;
-}
-
-static Node function() {
-  Node n = mknode(A_FUNCDEF);
-  n->type = type_spec();
-
-  n->funcname = expect(TK_IDENT)->name;
-
-  locals = param_list();
-  n->params = locals;
-
-  n->body = comp_stat();
-  n->locals = locals;
-
-  return n;
 }
 
 static Node statement() {
@@ -238,7 +288,7 @@ static Node comp_stat() {
   expect(TK_OPENING_BRACES);
   while (t->kind != TK_CLOSING_BRACES) {
     if (match(TK_INT)) {
-      last->next = decl();
+      last->next = declaration();
     } else {
       last->next = statement();
     }
@@ -302,13 +352,6 @@ static Node for_stat() {
   }
   n->body = statement();
   return n;
-}
-
-static Node decl() {
-  expect(TK_INT);
-  mklvar(expect(TK_IDENT)->name, inttype);
-  expect(TK_SIMI);
-  return NULL;
 }
 
 static Node expr_stat() {
@@ -396,20 +439,6 @@ static Node mul_expr() {
   }
 }
 
-static Node func_arg() {
-  struct node head = {};
-  Node cur = &head;
-
-  expect(TK_OPENING_PARENTHESES);
-  while (!consume(TK_CLOSING_PARENTHESES)) {
-    cur->next = expression();
-    cur = cur->next;
-    if (!match(TK_CLOSING_PARENTHESES))
-      expect(TK_COMMA);
-  };
-  return head.next;
-}
-
 static Node primary() {
   Token tok;
 
@@ -441,6 +470,20 @@ static Node primary() {
 
   error("parse: primary get unexpected token");
   return NULL;
+}
+
+static Node func_arg() {
+  struct node head = {};
+  Node cur = &head;
+
+  expect(TK_OPENING_PARENTHESES);
+  while (!consume(TK_CLOSING_PARENTHESES)) {
+    cur->next = expression();
+    cur = cur->next;
+    if (!match(TK_CLOSING_PARENTHESES))
+      expect(TK_COMMA);
+  };
+  return head.next;
 }
 
 static Node variable(Var v) {

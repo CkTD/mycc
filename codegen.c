@@ -4,12 +4,6 @@
 
 #include "inc.h"
 
-// https://web.stanford.edu/class/archive/cs/cs107/cs107.1222/guide/x86-64.html
-
-// gas manual: https://sourceware.org/binutils/docs-2.38/as.html
-
-// x86_64 instruction reference: https://www.felixcloutier.com/x86/
-
 // X86_64 Registers
 //
 // 64-bit | 32-bits | 16-bits | 8-bits | Conventional use
@@ -70,7 +64,10 @@ static void compare(char* cd) {
 
 static void gen_addr(Node n) {
   if (n->kind == A_VAR) {
-    fprintf(stdout, "\tlea\t-%d(%%rbp), %%rax\n", n->var->offset);
+    if (n->var->is_global)
+      fprintf(stdout, "\tlea\t%s(%%rip), %%rax\n", n->var->name);
+    else
+      fprintf(stdout, "\tlea\t-%d(%%rbp), %%rax\n", n->var->offset);
     fprintf(stdout, "\tpush\t%%rax\n");
     return;
   }
@@ -103,8 +100,6 @@ static void gen_iconst(int value) {
   fprintf(stdout, "\tmov\t$%d, %%rax\n", value);
   fprintf(stdout, "\tpush\t%%rax\n");
 }
-
-// https://stackoverflow.com/questions/38335212/calling-printf-in-x86-64-using-gnu-assembler#answer-38335743
 
 static void gen_expr(Node n);
 static void gen_stat(Node n);
@@ -230,7 +225,6 @@ static void gen_return(Node n) {
   fprintf(stdout, "\tjmp\t .L.return.%s\n", current_func->funcname);
 }
 
-// https://refspecs.linuxbase.org/elf/x86_64-abi-0.21.pdf(section 3.2)
 static void gen_funccall(Node n) {
   int nargs = 0;
   for (Node a = n->args; a; a = a->next) {
@@ -395,7 +389,8 @@ static void gen_func(Node n) {
   fprintf(stdout, "\tret\n");
 }
 
-void codegen(Node n) {
+// generate the print function: void print(int value);
+static void gen_print() {
   // print function
   int lid = label_id++;
   fprintf(stdout, ".data\n");
@@ -418,6 +413,20 @@ void codegen(Node n) {
   fprintf(stdout, "\tadd\t$8, %%rsp\n");
   fprintf(stdout, ".L.end.%d:\n", lid);
   fprintf(stdout, "\tret\n");
+}
+
+static void gen_data() {
+  fprintf(stdout, ".bss\n");
+  for (Var v = globals; v; v = v->next) {
+    fprintf(stdout, ".global %s\n", v->name);
+    fprintf(stdout, "%s:\n", v->name);
+    fprintf(stdout, "\t.zero %d\n", v->type->size);
+  }
+}
+
+void codegen(Node n) {
+  gen_data();
+  gen_print();
 
   // translate ast to code
   for (; n; n = n->next) {

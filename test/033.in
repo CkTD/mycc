@@ -1,0 +1,5 @@
+int a;
+void main() {
+    a=a+2;
+    print(a);
+}
