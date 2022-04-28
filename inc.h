@@ -82,7 +82,8 @@ Token tokenize(char* input);
  *************/
 typedef struct var* Var;
 struct var {
-  Var next;
+  Var next;        // linked in global/local variable list
+  Var scope_next;  // linked in scope
   Type type;
   char* name;
   int offset;

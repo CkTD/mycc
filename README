@@ -19,6 +19,7 @@
 
 * [Recursive descent parser](https://en.wikipedia.org/wiki/Recursive_descent_parser)
 * [LL parser](https://en.wikipedia.org/wiki/LL_parser)
+* Scope [wiki](https://en.wikipedia.org/wiki/Scope_(computer_science)) [C](http://port70.net/~nsz/c/c99/n1256.html#6.2.1)
 
 
 ## Some Implements

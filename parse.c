@@ -54,23 +54,52 @@ static Node mkbinary(int kind, Node left, Node right) {
   return n;
 }
 
-/*************
- * variables *
- *************/
+/***********************
+ * variables and scope *
+ ***********************/
 static Var locals;
 Var globals;
 
-static Var findvarintable(char* name, Var table) {
-  for (Var v = table; v; v = v->next) {
-    if (strlen(name) == strlen(v->name) && !strcmp(name, v->name))
+typedef struct scope* Scope;
+struct scope {
+  Var list;
+  Scope outer;
+};
+static Scope scope;
+
+static void enter_scope() {
+  Scope new_scope = calloc(1, sizeof(struct scope));
+  new_scope->outer = scope;
+  scope = new_scope;
+}
+
+static void exit_scope() {
+  scope = scope->outer;
+}
+
+static Var findvar_in_scope(char* name, Scope s) {
+  for (Var v = s->list; v; v = v->scope_next) {
+    if (name == v->name)
+      return v;
+  }
+  return NULL;
+}
+
+static Var findvar_in_globals(char* name) {
+  for (Var v = globals; v; v = v->next) {
+    if (name == v->name)
       return v;
   }
   return NULL;
 }
 
 static Var findvar(char* name) {
-  Var v = findvarintable(name, locals);
-  return v ? v : findvarintable(name, globals);
+  Var v;
+  for (Scope s = scope; s; s = s->outer) {
+    if ((v = findvar_in_scope(name, s)))
+      return v;
+  }
+  return findvar_in_globals(name);
 }
 
 static Var mkvar(char* name, Type ty) {
@@ -81,18 +110,20 @@ static Var mkvar(char* name, Type ty) {
 }
 
 static Var mklvar(char* name, Type ty) {
-  if (findvarintable(name, locals))
+  if (findvar_in_scope(name, scope))
     error("redefine local variable \"%s\"", name);
 
   Var v = mkvar(name, ty);
   v->is_global = 0;
   v->next = locals;
   locals = v;
+  v->scope_next = scope->list;
+  scope->list = v;
   return v;
 }
 
 static Var mkgvar(char* name, Type ty) {
-  if (findvarintable(name, locals))
+  if (findvar_in_globals(name))
     error("redefine global variable \"%s\"", name);
 
   Var v = mkvar(name, ty);
@@ -202,11 +233,12 @@ static Node function() {
   Node n = mknode(A_FUNCDEF);
   n->type = type_spec();
   n->funcname = expect(TK_IDENT)->name;
-
+  enter_scope();
   locals = param_list();
   n->params = locals;
   n->body = comp_stat();
   n->locals = locals;
+  exit_scope();
   return n;
 }
 
@@ -286,6 +318,7 @@ static Node comp_stat() {
   Node last = &head;
   last->next = NULL;
   expect(TK_OPENING_BRACES);
+  enter_scope();
   while (t->kind != TK_CLOSING_BRACES) {
     if (match(TK_INT)) {
       last->next = declaration();
@@ -296,6 +329,7 @@ static Node comp_stat() {
       last = last->next;
   }
   expect(TK_CLOSING_BRACES);
+  exit_scope();
   Node n = mknode(A_BLOCK);
   n->body = head.next;
   return n;

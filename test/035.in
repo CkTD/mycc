@@ -1,0 +1,14 @@
+int a;
+int func(int a, int b) {
+    {
+        int a;
+        a= 3;
+        print(a);
+    }
+    print(a);
+}
+
+void main() {
+    print(a);
+    func(1,2);
+}
