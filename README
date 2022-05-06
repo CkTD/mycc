@@ -5,6 +5,7 @@
 * [The syntax of C in Backus-Naur Form](https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm)
 * [C standards](https://stackoverflow.com/a/83763) , [C99](http://port70.net/%7Ensz/c/c99/n1256.html)
 * [C operator precedence](https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence)
+* [Understand integer conversion rules(Integer Promotions, Integer Conversion Rank, Usual Arithmetic Conversions)](https://wiki.sei.cmu.edu/confluence/display/c/INT02-C.+Understand+integer+conversion+rules), [C99(6.3)](http://port70.net/~nsz/c/c99/n1256.html#6.3)
 
 ## x86
 
@@ -26,3 +27,7 @@
 * [chibicc](https://github.com/rui314/chibicc)
 * [lcc](https://github.com/drh/lcc) ( [book](https://cpentalk.com/drive/index.php?download=true&p=Compiler+Design+Books%2FBooks%28+CPENTalk.com+%29&dl=A+Retargetable+C+Compiler+Design+and+Implementation+%28+CPENTalk.com+%29.pdf) )
 * [acwj](https://github.com/DoctorWkt/acwj)
+
+## Others
+
+* [Makefile header dependencies](https://stackoverflow.com/a/30142139)

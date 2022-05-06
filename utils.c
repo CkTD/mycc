@@ -7,10 +7,19 @@
 void error(char* msg, ...) {
   va_list ap;
   va_start(ap, msg);
+  fprintf(stderr, "error: ");
   vfprintf(stderr, msg, ap);
   fprintf(stderr, "\n");
   *((int*)0) = 1;
   exit(1);
+}
+
+void warn(char* msg, ...) {
+  va_list ap;
+  va_start(ap, msg);
+  fprintf(stderr, "warning: ");
+  vfprintf(stderr, msg, ap);
+  fprintf(stderr, "\n");
 }
 
 /*****************************
@@ -46,6 +55,6 @@ char* stringn(char* s, int n) {
   return new->s;
 }
 
-char* string(char* s) {
+const char* string(char* s) {
   return stringn(s, strlen(s));
 }

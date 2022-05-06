@@ -42,6 +42,12 @@ static Node mknode(int kind) {
   return n;
 }
 
+static Node mkaux(int kind, Node body) {
+  Node n = mknode(kind);
+  n->body = body;
+  return n;
+}
+
 static Node mkuniary(int op, Node left) {
   Node n = mknode(op);
   n->left = left;
@@ -49,20 +55,72 @@ static Node mkuniary(int op, Node left) {
 }
 
 static Node mkbinary(int kind, Node left, Node right) {
-  Node n = mkuniary(kind, left);
+  Node n = mknode(kind);
+  if (kind == A_ASSIGN) {
+    if (left->type != right->type) {
+      right = mkaux(A_CONVERSION, right);
+      right->type = left->type;
+    }
+    n->type = left->type;
+  } else {
+    Type t = usual_arithmetic_conversion(left->type, right->type);
+    if (left->type != t) {
+      left = mkaux(A_CONVERSION, left);
+      left->type = t;
+    }
+    if (right->type != t) {
+      right = mkaux(A_CONVERSION, right);
+      right->type = t;
+    }
+    // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p6
+    // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p3
+    n->type = (kind >= A_EQ && kind <= A_GE) ? inttype : t;
+  }
+  n->left = left;
   n->right = right;
   return n;
+}
+
+/**********************
+ * double linked list *
+ **********************/
+// make a circular doubly linked list node
+// if body is NULL, make a dummy head node
+static Node mklist(Node body) {
+  Node n = mkaux(A_DLIST, body);
+  n->next = n->prev = n;
+  return n;
+}
+
+// insert node to the end of list and return head
+static Node list_insert(Node head, Node node) {
+  head->prev->next = node;
+  node->prev = head->prev;
+  node->next = head;
+  head->prev = node;
+  return head;
+}
+
+// get nth node in list(0 for first node)
+// return head if lenth of list is less than n
+Node list_n(Node head, int n) {
+  Node t = head->next;
+  while (t != head && n-- > 0)
+    t = t->next;
+  return t;
 }
 
 /***********************
  * variables and scope *
  ***********************/
-static Var locals;
-Var globals;
+// local variables are accumulated to this list during parsing current function
+static Node locals;
+// global variables/function are accumulated to this list during parsing
+static Node globals;
 
 typedef struct scope* Scope;
 struct scope {
-  Var list;
+  Node list;
   Scope outer;
 };
 static Scope scope;
@@ -77,60 +135,64 @@ static void exit_scope() {
   scope = scope->outer;
 }
 
-static Var findvar_in_scope(char* name, Scope s) {
-  for (Var v = s->list; v; v = v->scope_next) {
-    if (name == v->name)
-      return v;
+static Node find_scope(const char* name, Scope s) {
+  for (Node n = s->list; n; n = n->scope_next) {
+    if (name == n->name)
+      return n;
   }
   return NULL;
 }
 
-static Var findvar_in_globals(char* name) {
-  for (Var v = globals; v; v = v->next) {
-    if (name == v->name)
-      return v;
+static Node find_global(const char* name) {
+  for (Node n = globals; n; n = n->next) {
+    if (name == n->name)
+      return n;
   }
   return NULL;
 }
 
-static Var findvar(char* name) {
-  Var v;
+static Node find_var(const char* name) {
+  Node v;
   for (Scope s = scope; s; s = s->outer) {
-    if ((v = findvar_in_scope(name, s)))
+    if ((v = find_scope(name, s)))
       return v;
   }
-  return findvar_in_globals(name);
-}
 
-static Var mkvar(char* name, Type ty) {
-  Var v = calloc(1, sizeof(struct var));
-  v->name = name;
-  v->type = ty;
+  v = find_global(name);
+  if (v && v->is_function)
+    error("%s is a function, variable expected", name);
   return v;
 }
 
-static Var mklvar(char* name, Type ty) {
-  if (findvar_in_scope(name, scope))
+static Node mkvar(const char* name, Type ty) {
+  Node n = mknode(A_VAR);
+  n->name = name;
+  n->type = ty;
+  return n;
+}
+
+static Node mklvar(const char* name, Type ty) {
+  if (find_scope(name, scope))
     error("redefine local variable \"%s\"", name);
 
-  Var v = mkvar(name, ty);
-  v->is_global = 0;
-  v->next = locals;
-  locals = v;
-  v->scope_next = scope->list;
-  scope->list = v;
-  return v;
+  Node n = mkvar(name, ty);
+  n->is_global = 0;
+  n->next = locals;
+  locals = n;
+  n->scope_next = scope->list;
+  scope->list = n;
+  return n;
 }
 
-static Var mkgvar(char* name, Type ty) {
-  if (findvar_in_globals(name))
+static Node mkgvar(const char* name, Type ty) {
+  if (find_global(name))
     error("redefine global variable \"%s\"", name);
 
-  Var v = mkvar(name, ty);
-  v->is_global = 1;
-  v->next = globals;
-  globals = v;
-  return v;
+  Node n = mkvar(name, ty);
+  n->is_global = 1;
+  n->next = globals;
+  globals = n;
+  return n;
 }
 
 /*****************************
@@ -161,14 +223,14 @@ static Var mkgvar(char* name, Type ty) {
 // relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}
 // sum_expr        :mul_expr { '+'|'-' mul_exp }
 // mul_exp:        primary { '*'|'/' primary }
-// primary:        identifier func_args? | number  | '(' expression ')'
-// func_args:      '(' expression { ',' expression } ')'
+// primary:        identifier arg_list? | number  | '(' expression ')'
+// arg_list:       '(' expression { ',' expression } ')'
 
 static Node trans_unit();
 static Node declaration();
-Type type_spec();
+static Type type_spec();
 static Node function();
-Var param_list();
+static Node param_list();
 static Node statement();
 static Node comp_stat();
 static Node if_stat();
@@ -183,8 +245,7 @@ static Node rel_expr();
 static Node sum_expr();
 static Node mul_expr();
 static Node primary();
-static Node func_arg();
-static Node variable();
+static Node arg_list();
 
 static int is_function;
 static int check_next_top_level_item() {
@@ -196,17 +257,14 @@ static int check_next_top_level_item() {
 }
 
 static Node trans_unit() {
-  struct node head;
-  Node last = &head;
-  last->next = NULL;
   while (t->kind != TK_EOI) {
     check_next_top_level_item();
     if (is_function)  // function
-      last = last->next = function();
+      function();
     else  // global variable
       declaration();
   }
-  return head.next;
+  return globals;
 }
 
 static Node declaration() {
@@ -220,36 +278,60 @@ static Node declaration() {
 }
 
 Type type_spec() {
+  if (consume(TK_VOID))
+    return voidtype;
+
+  if (consume(TK_UNSIGNED)) {
+    if (consume(TK_CHAR))
+      return uchartype;
+    if (consume(TK_SHORT))
+      return ushorttype;
+    if (consume(TK_INT))
+      return uinttype;
+    if (consume(TK_LONG))
+      return ulongtype;
+  }
+
+  if (consume(TK_CHAR))
+    return chartype;
+  if (consume(TK_SHORT))
+    return shorttype;
   if (consume(TK_INT))
     return inttype;
-  if (consume(TK_VOID))
-    return inttype;
+  if (consume(TK_LONG))
+    return longtype;
 
   error("unknown type %s", t->name);
   return NULL;
 }
 
 static Node function() {
-  Node n = mknode(A_FUNCDEF);
+  locals = NULL;
+  Node n = mknode(A_FUNC_DEF);
   n->type = type_spec();
-  n->funcname = expect(TK_IDENT)->name;
+  n->name = expect(TK_IDENT)->name;
+  n->is_function = 1;
+
+  n->next = globals;
+  globals = n;
+
   enter_scope();
-  locals = param_list();
-  n->params = locals;
+  n->params = param_list();
   n->body = comp_stat();
   n->locals = locals;
   exit_scope();
-  return n;
+
+  return NULL;
 }
 
-Var param_list() {
-  Var head = NULL;
+Node param_list() {
+  Node head = mklist(NULL);
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
     Type ty = type_spec();
-    Var v = mklvar(expect(TK_IDENT)->name, ty);
-    v->next = head;
-    head = v;
+    const char* name = expect(TK_IDENT)->name;
+    list_insert(head, mklist(mklvar(name, ty)));
+
     if (!match(TK_CLOSING_PARENTHESES))
       expect(TK_COMMA);
   }
@@ -264,9 +346,10 @@ static Node statement() {
 
   // print statement
   if (consume(TK_PRINT)) {
-    Node n = mknode(A_FUNCCALL);
-    n->args = expression();
-    n->callee = "print";
+    Node n = mknode(A_FUNC_CALL);
+    n->args = list_insert(mklist(NULL), mklist(expression()));
+    n->callee_name = "print";
+    n->type = inttype;
     expect(TK_SIMI);
     return n;
   }
@@ -304,7 +387,11 @@ static Node statement() {
     Node n = mknode(A_RETURN);
     if (consume(TK_SIMI))
       return n;
-    n->left = expression();
+    n->body = expression();
+    if (n->body->type != globals->type) {
+      n->body = mkaux(A_CONVERSION, n->body);
+      n->body->type = globals->type;
+    }
     expect(TK_SIMI);
     return n;
   }
@@ -320,7 +407,7 @@ static Node comp_stat() {
   expect(TK_OPENING_BRACES);
   enter_scope();
   while (t->kind != TK_CLOSING_BRACES) {
-    if (match(TK_INT)) {
+    if (t->kind >= TK_VOID && t->kind <= TK_LONG) {
       last->next = declaration();
     } else {
       last->next = statement();
@@ -330,9 +417,7 @@ static Node comp_stat() {
   }
   expect(TK_CLOSING_BRACES);
   exit_scope();
-  Node n = mknode(A_BLOCK);
-  n->body = head.next;
-  return n;
+  return mkaux(A_BLOCK, head.next);
 }
 
 static Node if_stat() {
@@ -381,7 +466,7 @@ static Node for_stat() {
     expect(TK_SIMI);
   }
   if (!consume(TK_CLOSING_PARENTHESES)) {
-    n->post = mkuniary(A_EXPR_STAT, expression());
+    n->post = mkaux(A_EXPR_STAT, expression());
     expect(TK_CLOSING_PARENTHESES);
   }
   n->body = statement();
@@ -395,7 +480,7 @@ static Node expr_stat() {
 
   Node n = expression();
   expect(TK_SIMI);
-  return mkuniary(A_EXPR_STAT, n);
+  return mkaux(A_EXPR_STAT, n);
 }
 
 static Node expression() {
@@ -432,19 +517,17 @@ static Node eq_expr() {
 static Node rel_expr() {
   Node n = sum_expr();
   for (;;) {
-    if (consume(TK_GREATER)) {
+    if (consume(TK_GREATER))
       n = mkbinary(A_GT, n, sum_expr());
-    } else if (consume(TK_LESS)) {
+    else if (consume(TK_LESS))
       n = mkbinary(A_LT, n, sum_expr());
-    } else if (consume(TK_GREATEREQUAL)) {
+    else if (consume(TK_GREATEREQUAL))
       n = mkbinary(A_GE, n, sum_expr());
-    } else if (consume(TK_LESSEQUAL)) {
+    else if (consume(TK_LESSEQUAL))
       n = mkbinary(A_LE, n, sum_expr());
-    } else {
-      break;
-    }
+    else
+      return n;
   }
-  return n;
 }
 
 static Node sum_expr() {
@@ -461,15 +544,13 @@ static Node sum_expr() {
 
 static Node mul_expr() {
   Node n = primary();
-
   for (;;) {
-    if (consume(TK_STAR)) {
+    if (consume(TK_STAR))
       n = mkbinary(A_MUL, n, primary());
-    } else if (consume(TK_SLASH)) {
+    else if (consume(TK_SLASH))
       n = mkbinary(A_DIV, n, primary());
-    } else {
+    else
       return n;
-    }
   }
 }
 
@@ -478,22 +559,29 @@ static Node primary() {
 
   if ((tok = consume(TK_NUM))) {
     Node n = mknode(A_NUM);
+    n->type = inttype;
     n->intvalue = tok->value;
     return n;
   }
 
   if ((tok = consume(TK_IDENT))) {
     if (match(TK_OPENING_PARENTHESES)) {
-      Node n = mknode(A_FUNCCALL);
-      n->callee = tok->name;
-      n->args = func_arg();
+      Node n = mknode(A_FUNC_CALL);
+      n->callee_name = tok->name;
+      n->args = arg_list();
+      Node f = find_global(n->callee_name);
+      if (!f)
+        error("function %s not defined", n->callee_name);
+      if (!f->is_function)
+        error("%s is a variable, function expected", n->callee_name);
+      n->type = f->type;
       return n;
     }
 
-    Var v = findvar(tok->name);
+    Node v = find_var(tok->name);
     if (!v)
       error("undefined variable");
-    return variable(v);
+    return v;
   }
 
   if (consume(TK_OPENING_PARENTHESES)) {
@@ -506,31 +594,19 @@ static Node primary() {
   return NULL;
 }
 
-static Node func_arg() {
-  struct node head = {};
-  Node cur = &head;
+static Node arg_list() {
+  Node head = mklist(NULL);
 
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
-    cur->next = expression();
-    cur = cur->next;
+    list_insert(head, mklist(expression()));
     if (!match(TK_CLOSING_PARENTHESES))
       expect(TK_COMMA);
   };
-  return head.next;
-}
-
-static Node variable(Var v) {
-  Node n = mknode(A_VAR);
-  n->var = v;
-  return n;
+  return head;
 }
 
 Node parse(Token root) {
   t = root;
-  Node n = trans_unit();
-  if (t->kind != TK_EOI) {
-    error("parse: unexpected EOI");
-  }
-  return n;
+  return trans_unit();
 }

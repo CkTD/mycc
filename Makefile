@@ -1,16 +1,21 @@
 SRCS=$(wildcard *.c)
 OBJS=$(SRCS:.c=.o)
-CFLAGS=-g -Wall #-fsanitize=address,undefined
-#export ASAN_OPTIONS=detect_leaks=0
+DEPS=$(OBJS:.o=.d)
+CFLAGS=-g -Wall -std=c99 #-fsanitize=address,undefined
 
-mycc: $(OBJS) inc.h
+mycc: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
+
+-include $(DEPS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -MMD -c -o $@ $<
 
 .PHONY: clean test
 
 clean:
-	rm -rf mycc $(OBJS)
+	rm -rf mycc $(OBJS) $(DEPS)
 
 test: mycc
-	@./test.sh
+	@./test.sh 2>/dev/null
 	@rm temp.*

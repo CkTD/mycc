@@ -8,6 +8,7 @@ const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_CLOSING_BRACES] = "}",
                            [TK_OPENING_PARENTHESES] = "(",
                            [TK_CLOSING_PARENTHESES] = ")",
+                           [TK_COMMA] = ",",
                            [TK_SIMI] = ";",
                            [TK_STAR] = "*",
                            [TK_ADD] = "+",
@@ -20,9 +21,15 @@ const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_GREATEREQUAL] = ">=",
                            [TK_LESS] = "<",
                            [TK_LESSEQUAL] = "<=",
-                           [TK_PRINT] = "print",
-                           [TK_IDENT] = "identifier",
+                           // keywords
+                           [TK_VOID] = "void",
+                           [TK_CHAR] = "char",
+                           [TK_UNSIGNED] = "unsigned",
+                           [TK_SIGNED] = "signed",
                            [TK_INT] = "int",
+                           [TK_SHORT] = "short",
+                           [TK_LONG] = "long",
+                           [TK_PRINT] = "print",
                            [TK_IF] = "if",
                            [TK_ELSE] = "else",
                            [TK_WHILE] = "while",
@@ -30,12 +37,13 @@ const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_FOR] = "for",
                            [TK_BREAK] = "break",
                            [TK_CONTINUE] = "continue",
-                           [TK_VOID] = "void",
                            [TK_RETURN] = "return",
+                           //
                            [TK_EOI] = "eoi",
+                           [TK_IDENT] = "identifier",
                            [TK_NUM] = "number"};
 
-Token mktoken(int kind, char* name) {
+Token mktoken(int kind, const char* name) {
   Token t = malloc(sizeof(struct token));
   t->kind = kind;
   t->name = name;
@@ -119,31 +127,13 @@ Token tokenize(char* p) {
       do {
         p++;
       } while (isalpha(*p) || isdigit(*p) || *p == '_');
-      char* name = stringn(b, p - b);
-      if (name == string("print"))
-        n = mktoken(TK_PRINT, name);
-      else if (name == string("if"))
-        n = mktoken(TK_IF, name);
-      else if (name == string("else"))
-        n = mktoken(TK_ELSE, name);
-      else if (name == string("while"))
-        n = mktoken(TK_WHILE, name);
-      else if (name == string("do"))
-        n = mktoken(TK_DO, name);
-      else if (name == string("for"))
-        n = mktoken(TK_FOR, name);
-      else if (name == string("break"))
-        n = mktoken(TK_BREAK, name);
-      else if (name == string("continue"))
-        n = mktoken(TK_CONTINUE, name);
-      else if (name == string("return"))
-        n = mktoken(TK_RETURN, name);
-      else if (name == string("void"))
-        n = mktoken(TK_VOID, name);
-      else if (name == string("int"))
-        n = mktoken(TK_INT, name);
-      else
-        n = mktoken(TK_IDENT, name);
+      const char* name = stringn(b, p - b);
+      n = NULL;
+      for (int kind = TK_VOID; kind <= TK_RETURN; kind++) {
+        if (name == string(token_str[kind]))
+          n = mktoken(kind, name);
+      }
+      n = n ? n : mktoken(TK_IDENT, name);
     } else {
       error("tokenize: syntax error, unknown %c", *p);
     }
