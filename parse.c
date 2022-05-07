@@ -231,8 +231,8 @@ static Node declaration();
 static Type type_spec();
 static Node function();
 static Node param_list();
-static Node statement();
-static Node comp_stat();
+static Node statement(int reuse_scope);
+static Node comp_stat(int reuse_scope);
 static Node if_stat();
 static Node while_stat();
 static Node dowhile_stat();
@@ -312,12 +312,11 @@ static Node function() {
   n->name = expect(TK_IDENT)->name;
   n->is_function = 1;
 
-  n->next = globals;
-  globals = n;
-
   enter_scope();
   n->params = param_list();
-  n->body = comp_stat();
+  n->next = globals;
+  globals = n;
+  n->body = comp_stat(1);
   n->locals = locals;
   exit_scope();
 
@@ -338,10 +337,10 @@ Node param_list() {
   return head;
 }
 
-static Node statement() {
+static Node statement(int reuse_scope) {
   // compound statement
   if (match(TK_OPENING_BRACES)) {
-    return comp_stat();
+    return comp_stat(reuse_scope);
   }
 
   // print statement
@@ -400,23 +399,25 @@ static Node statement() {
   return expr_stat();
 }
 
-static Node comp_stat() {
+static Node comp_stat(int reuse_scope) {
   struct node head;
   Node last = &head;
   last->next = NULL;
   expect(TK_OPENING_BRACES);
-  enter_scope();
+  if (!reuse_scope)
+    enter_scope();
   while (t->kind != TK_CLOSING_BRACES) {
     if (t->kind >= TK_VOID && t->kind <= TK_LONG) {
       last->next = declaration();
     } else {
-      last->next = statement();
+      last->next = statement(0);
     }
     while (last->next)
       last = last->next;
   }
   expect(TK_CLOSING_BRACES);
-  exit_scope();
+  if (!reuse_scope)
+    exit_scope();
   return mkaux(A_BLOCK, head.next);
 }
 
@@ -426,9 +427,9 @@ static Node if_stat() {
   expect(TK_OPENING_PARENTHESES);
   n->cond = expression();
   expect(TK_CLOSING_PARENTHESES);
-  n->then = statement();
+  n->then = statement(0);
   if (consume(TK_ELSE)) {
-    n->els = statement();
+    n->els = statement(0);
   }
   return n;
 }
@@ -439,14 +440,14 @@ static Node while_stat() {
   expect(TK_OPENING_PARENTHESES);
   n->cond = eq_expr();
   expect(TK_CLOSING_PARENTHESES);
-  n->body = statement();
+  n->body = statement(0);
   return n;
 }
 
 static Node dowhile_stat() {
   Node n = mknode(A_DOWHILE);
   expect(TK_DO);
-  n->body = statement();
+  n->body = statement(0);
   expect(TK_WHILE);
   expect(TK_OPENING_PARENTHESES);
   n->cond = expression();
@@ -459,6 +460,7 @@ static Node for_stat() {
   Node n = mknode(A_FOR);
   expect(TK_FOR);
   expect(TK_OPENING_PARENTHESES);
+  enter_scope();
   if (!consume(TK_SIMI))
     n->init = expr_stat();
   if (!consume(TK_SIMI)) {
@@ -469,7 +471,8 @@ static Node for_stat() {
     n->post = mkaux(A_EXPR_STAT, expression());
     expect(TK_CLOSING_PARENTHESES);
   }
-  n->body = statement();
+  n->body = statement(1);
+  exit_scope();
   return n;
 }
 
