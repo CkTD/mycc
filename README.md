@@ -31,3 +31,12 @@
 ## Others
 
 * [Makefile header dependencies](https://stackoverflow.com/a/30142139)
+
+
+# TODO
+
+- [ ] type conversions: arguments to paramenter
+- [ ] pointer type
+- [ ] string literials
+- [ ] remove print statement by calling library function "printf"
+- [ ] for test, compile the source code with gcc, use the output of gcc as target output

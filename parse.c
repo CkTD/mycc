@@ -599,7 +599,8 @@ static Node primary() {
 
 static Node arg_list() {
   Node head = mklist(NULL);
-
+  // TODO type conversions:  arguments to paramenter
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p7
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
     list_insert(head, mklist(expression()));
