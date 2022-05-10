@@ -6,6 +6,7 @@
 * [C standards](https://stackoverflow.com/a/83763) , [C99](http://port70.net/%7Ensz/c/c99/n1256.html)
 * [C operator precedence](https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence)
 * [Understand integer conversion rules(Integer Promotions, Integer Conversion Rank, Usual Arithmetic Conversions)](https://wiki.sei.cmu.edu/confluence/display/c/INT02-C.+Understand+integer+conversion+rules), [C99(6.3)](http://port70.net/~nsz/c/c99/n1256.html#6.3)
+* [Implicity prototype C99 vs C90](https://stackoverflow.com/a/437763)
 
 ## x86
 
@@ -35,8 +36,32 @@
 
 # TODO
 
-- [ ] type conversions: arguments to paramenter
-- [ ] pointer type
-- [ ] string literials
-- [ ] remove print statement by calling library function "printf"
-- [ ] for test, compile the source code with gcc, use the output of gcc as target output
+- [ ] [Types](http://port70.net/~nsz/c/c99/n1256.html#6.2.5)
+    - [ ] integrial types
+        - [x] char
+        - [x] shrot
+        - [x] int
+        - [x] long
+        - [ ] long long
+    - [ ] floaing types
+    - [ ] pointer types
+    - [ ] enumerated types
+    - [ ] function types
+    - [ ] array types
+    - [ ] struct types
+    - [ ] union types
+- [ ] [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)
+    - [x] integral
+    - [ ] floating
+    - [x] type conversions: arguments to paramenter
+- [ ] [Lexical elements](http://port70.net/~nsz/c/c99/n1256.html#6.4)
+    - [ ] [constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
+        - [=] integral constant
+        - [ ] floating constant
+        - [ ] character constant
+    - [ ] string literials
+- [ ] [declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
+    - [ ] init list
+- [ ] Other
+    - [ ] remove print statement by calling library function "printf"
+    - [ ] for test, compile the source code with gcc, use the output of gcc as target output

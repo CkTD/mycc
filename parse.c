@@ -54,24 +54,25 @@ static Node mkuniary(int op, Node left) {
   return n;
 }
 
+static Node mkcvs(Type t, Node body) {
+  Node n = mkaux(A_CONVERSION, body);
+  n->type = t;
+  return n;
+}
+
 static Node mkbinary(int kind, Node left, Node right) {
   Node n = mknode(kind);
   if (kind == A_ASSIGN) {
-    if (left->type != right->type) {
-      right = mkaux(A_CONVERSION, right);
-      right->type = left->type;
-    }
+    if (left->type != right->type)
+      right = mkcvs(left->type, right);
     n->type = left->type;
   } else {
     Type t = usual_arithmetic_conversion(left->type, right->type);
-    if (left->type != t) {
-      left = mkaux(A_CONVERSION, left);
-      left->type = t;
-    }
-    if (right->type != t) {
-      right = mkaux(A_CONVERSION, right);
-      right->type = t;
-    }
+    if (left->type != t)
+      left = mkcvs(t, left);
+    if (right->type != t)
+      right = mkcvs(t, right);
+
     // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p6
     // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p3
     n->type = (kind >= A_EQ && kind <= A_GE) ? inttype : t;
@@ -245,7 +246,7 @@ static Node rel_expr();
 static Node sum_expr();
 static Node mul_expr();
 static Node primary();
-static Node arg_list();
+static Node func_call(const char* name);
 
 static int is_function;
 static int check_next_top_level_item() {
@@ -313,7 +314,7 @@ static Node function() {
   n->is_function = 1;
 
   enter_scope();
-  n->params = param_list();
+  n->protos = param_list();
   n->next = globals;
   globals = n;
   n->body = comp_stat(1);
@@ -387,10 +388,8 @@ static Node statement(int reuse_scope) {
     if (consume(TK_SIMI))
       return n;
     n->body = expression();
-    if (n->body->type != globals->type) {
-      n->body = mkaux(A_CONVERSION, n->body);
-      n->body->type = globals->type;
-    }
+    if (n->body->type != globals->type)
+      n->body = mkcvs(globals->type, n->body);
     expect(TK_SIMI);
     return n;
   }
@@ -568,18 +567,8 @@ static Node primary() {
   }
 
   if ((tok = consume(TK_IDENT))) {
-    if (match(TK_OPENING_PARENTHESES)) {
-      Node n = mknode(A_FUNC_CALL);
-      n->callee_name = tok->name;
-      n->args = arg_list();
-      Node f = find_global(n->callee_name);
-      if (!f)
-        error("function %s not defined", n->callee_name);
-      if (!f->is_function)
-        error("%s is a variable, function expected", n->callee_name);
-      n->type = f->type;
-      return n;
-    }
+    if (match(TK_OPENING_PARENTHESES))
+      return func_call(tok->name);
 
     Node v = find_var(tok->name);
     if (!v)
@@ -597,17 +586,40 @@ static Node primary() {
   return NULL;
 }
 
-static Node arg_list() {
-  Node head = mklist(NULL);
-  // TODO type conversions:  arguments to paramenter
-  // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p7
+static Node func_call(const char* name) {
+  Node n = mknode(A_FUNC_CALL);
+  Node f = find_global(name);
+
+  if (!f)
+    error("function %s not defined", name);
+  if (!f->is_function)
+    error("%s is a variable, function expected", name);
+
+  n->callee_name = name;
+  n->type = f->type;
+
+  // function argument lists
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p6
+  Node args = mklist(NULL);
+  Node cur_param = f->protos ? f->protos->next : NULL;
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
-    list_insert(head, mklist(expression()));
+    Node arg = expression();
+    if (f->protos) {
+      if (cur_param != f->protos) {
+        arg = mkcvs(cur_param->body->type, arg);
+        cur_param = cur_param->next;
+      } else
+        warn("too many arguments to function %s", f->name);
+    } else
+      arg = mkcvs(integral_promote(arg->type), arg);
+
+    list_insert(args, mklist(arg));
     if (!match(TK_CLOSING_PARENTHESES))
       expect(TK_COMMA);
   };
-  return head;
+  n->args = args;
+  return n;
 }
 
 Node parse(Token root) {

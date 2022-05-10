@@ -470,10 +470,8 @@ static void gen_func(Node globals) {
     // Load arguments to local variables
     int i = 0;
     Node node;
-    list_for_each(n->params, node) {
+    list_for_each(n->protos, node) {
       Node v = node->body;
-      if (v->type != inttype)
-        error("non int arg");
       if (i < 6)
         fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
                 size_suffix[v->type->size], arg_regs[v->type->size][i],

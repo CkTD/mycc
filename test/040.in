@@ -1,0 +1,11 @@
+int func(char c) {
+    return c;
+}
+
+void main() {
+    int x;
+    x = 10;
+    int y;
+    y = func(x);
+    print y;
+}

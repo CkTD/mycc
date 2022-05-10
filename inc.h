@@ -190,7 +190,7 @@ struct node {
 
   // A_FUNC_DEF
   Node globals;
-  Node params;
+  Node protos;
   Node locals;
   int stack_size;
   int is_function;
