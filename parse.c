@@ -210,8 +210,10 @@ static Node mkgvar(const char* name, Type ty) {
  * recursive parse procedure *
  *****************************/
 // trans_unit:     { func_def | declaration }*
-// declaration:    type_spec identifier;
-// type_spec:      'int'
+// declaration:    type_spec init_declarator { ',' init_declarator }* ';'
+// type_spec:      'unsigned'? { 'char' | 'int' | 'short' | 'long' }
+// init_declarator:declarator { '=' expression }?
+// declarator:     {'*'}* identifier { '[' expression ']' }?
 // func_def:       type_spec identifier '(' param_list ')' comp_stat
 // param_list:     param_declaration { ',' param_declaration }
 // param_declaration: { type_spec }+ identifier
@@ -221,7 +223,7 @@ static Node mkgvar(const char* name, Type ty) {
 // if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
 // iteration-stat: while_stat | dowhile_stat | for_stat
 // while_stat:     'while' '(' expr_stat ')' statement
-// dowhile_stat:   'do' statement 'while' '(' expression ')';
+// dowhile_stat:   'do' statement 'while' '(' expression ')' ';'
 // for_stat:       'for' '(' {expression}; {expression}; {expression}')'
 //                 statement
 // jump_stat:      break ';' | continue ';' | 'return' expression? ';'
@@ -240,6 +242,8 @@ static Node mkgvar(const char* name, Type ty) {
 
 static Node trans_unit();
 static Node declaration();
+static Node init_declarator(Type ty);  // scope????
+static Node declarator(Type ty);
 static Type type_spec();
 static Node function();
 static Node param_list();
@@ -282,12 +286,18 @@ static Node trans_unit() {
 
 static Node declaration() {
   Type ty = type_spec();
-  if (is_function)
-    mklvar(expect(TK_IDENT)->name, ty);
-  else
-    mkgvar(expect(TK_IDENT)->name, ty);
-  expect(TK_SIMI);
-  return NULL;
+  struct node head = {};
+  Node last = &head;
+  last->next = init_declarator(ty);
+  while (last->next)
+    last = last->next;
+  while (!consume(TK_SIMI)) {
+    expect(TK_COMMA);
+    last->next = init_declarator(ty);
+    while (last->next)
+      last = last->next;
+  }
+  return head.next;
 }
 
 Type type_spec() {
@@ -312,10 +322,34 @@ Type type_spec() {
   else if (consume(TK_LONG))
     ty = longtype;
 
+  return ty;
+}
+
+static Node init_declarator(Type ty) {
+  Node n = declarator(ty);
+  if (consume(TK_EQUAL)) {
+    Node e = expression();
+    if (is_function) {
+      return mkbinary(A_ASSIGN, n, e);
+    } else {
+      if (e->kind != A_NUM)
+        error("initialize global value should be integer constant");
+      n->init_value = e;
+      return NULL;
+    }
+  }
+  return NULL;
+}
+
+static Node declarator(Type ty) {
   while (ty && consume(TK_STAR))
     ty = ptr_type(ty);
 
-  return ty;
+  const char* name = expect(TK_IDENT)->name;
+
+  if (is_function)
+    return mklvar(name, ty);
+  return mkgvar(name, ty);
 }
 
 static Node function() {
@@ -341,6 +375,8 @@ Node param_list() {
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
     Type ty = type_spec();
+    while (consume(TK_STAR))
+      ty = ptr_type(ty);
     const char* name = expect(TK_IDENT)->name;
     list_insert(head, mklist(mklvar(name, ty)));
 
@@ -411,18 +447,16 @@ static Node statement(int reuse_scope) {
 }
 
 static Node comp_stat(int reuse_scope) {
-  struct node head;
+  struct node head = {};
   Node last = &head;
-  last->next = NULL;
   expect(TK_OPENING_BRACES);
   if (!reuse_scope)
     enter_scope();
   while (t->kind != TK_CLOSING_BRACES) {
-    if (t->kind >= TK_VOID && t->kind <= TK_LONG) {
+    if (t->kind >= TK_VOID && t->kind <= TK_LONG)
       last->next = declaration();
-    } else {
+    else
       last->next = statement(0);
-    }
     while (last->next)
       last = last->next;
   }

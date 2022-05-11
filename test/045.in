@@ -1,0 +1,6 @@
+void main() {
+    int a=12345,b,*p;
+    b = a;
+    p = &b;
+    print *p;
+}

@@ -62,7 +62,7 @@
     - [ ] string literials
 - [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
 - [ ] [declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
-    - [ ] init list
+    - [x] init list
 - [ ] Others
     - [ ] remove print statement by calling library function "printf"
     - [ ] for test, compile the source code with gcc, use the output of gcc as target output

@@ -476,8 +476,8 @@ static void gen_func(Node globals) {
     current_func = n;
     handle_lvars(n);
 
-    fprintf(stdout, ".text\n");
-    fprintf(stdout, ".global %s\n", n->name);
+    fprintf(stdout, "\t.text\n");
+    fprintf(stdout, "\t.global %s\n", n->name);
     fprintf(stdout, "%s:\n", n->name);
 
     // Prologue
@@ -515,9 +515,9 @@ static void gen_func(Node globals) {
 
 // generate the print function: void print(int value);
 static void gen_print() {
-  fprintf(stdout, ".data\n");
+  fprintf(stdout, "\t.data\n");
   fprintf(stdout, "format: .asciz \"%%d\\n\"\n");
-  fprintf(stdout, ".text\n");
+  fprintf(stdout, "\t.text\n");
   fprintf(stdout, "print: \n");
   fprintf(stdout, "\tmovq\t%%rdi, %%rsi\n");
   fprintf(stdout, "\tleaq\tformat(%%rip), %%rdi\n");
@@ -529,12 +529,25 @@ static void gen_print() {
 }
 
 static void gen_data(Node globals) {
-  fprintf(stdout, ".bss\n");
+  fprintf(stdout, "\t.bss\n");
   for (Node n = globals; n; n = n->next) {
-    if (n->kind == A_VAR) {
-      fprintf(stdout, ".global %s\n", n->name);
+    if (n->kind == A_VAR && !n->init_value) {
+      fprintf(stdout, "\t.global %s\n", n->name);
       fprintf(stdout, "%s:\n", n->name);
       fprintf(stdout, "\t.zero %d\n", n->type->size);
+    }
+  }
+
+  fprintf(stdout, "\t.data\n");
+  for (Node n = globals; n; n = n->next) {
+    if (n->kind == A_VAR && n->init_value) {
+      fprintf(stdout, "\t.global %s\n", n->name);
+      fprintf(stdout, "%s:\n", n->name);
+      if (n->type->size == 1)
+        fprintf(stdout, "\t.byte %d\n", n->init_value->intvalue);
+      else
+        fprintf(stdout, "\t.%dbyte %d\n", n->type->size,
+                n->init_value->intvalue);
     }
   }
 }

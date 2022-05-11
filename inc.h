@@ -193,6 +193,7 @@ struct node {
   Node scope_next;  // linked in scope(for local var)
   int offset;       // stack offset(for local var)
   int is_global;
+  Node init_value;
 
   // A_FUNC_CALL
   const char* callee_name;
