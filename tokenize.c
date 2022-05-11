@@ -14,6 +14,7 @@ const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_ADD] = "+",
                            [TK_SUB] = "-",
                            [TK_SLASH] = "/",
+                           [TK_AND] = "&",
                            [TK_EQUAL] = "=",
                            [TK_EQUALEQUAL] = "==",
                            [TK_NOTEQUAL] = "!=",
@@ -119,6 +120,9 @@ Token tokenize(char* p) {
       p += 2;
     } else if (*p == '<') {
       n = mktoken(TK_LESS, stringn(p, 1));
+      p++;
+    } else if (*p == '&') {
+      n = mktoken(TK_AND, stringn(p, 1));
       p++;
     }
     // keywords or  identifer

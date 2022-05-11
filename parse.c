@@ -48,14 +48,33 @@ static Node mkaux(int kind, Node body) {
   return n;
 }
 
-static Node mkuniary(int op, Node left) {
-  Node n = mknode(op);
+static Node mkuniary(int kind, Node left) {
+  Node n = mknode(kind);
   n->left = left;
+  if (kind == A_ADDRESS_OF) {
+    if (left->kind == A_DEFERENCE)
+      return left->left;
+    if (left->kind != A_VAR)
+      error("lvalue required as unary '&' operand");
+    n->type = ptr_type(left->type);
+  } else if (kind == A_DEFERENCE) {
+    if (left->kind == A_ADDRESS_OF)
+      return left->left;
+    if (left->type->kind != TY_POINTER)
+      error("pointer required as unary '*' operand");
+    n->type = deref_type(left->type);
+  } else
+    error("unknown uniary operator");
   return n;
 }
 
 static Node mkcvs(Type t, Node body) {
   Node n = mkaux(A_CONVERSION, body);
+  // body->type -> type
+  if (is_pointer(t) && is_pointer(body->type))
+    warn("convert between different pointer types");
+  else if (is_pointer(t) || is_pointer(body->type))
+    warn("convert between pointer and integeral types");
   n->type = t;
   return n;
 }
@@ -100,15 +119,6 @@ static Node list_insert(Node head, Node node) {
   node->next = head;
   head->prev = node;
   return head;
-}
-
-// get nth node in list(0 for first node)
-// return head if lenth of list is less than n
-Node list_n(Node head, int n) {
-  Node t = head->next;
-  while (t != head && n-- > 0)
-    t = t->next;
-  return t;
 }
 
 /***********************
@@ -219,7 +229,8 @@ static Node mkgvar(const char* name, Type ty) {
 // print_stat:     'print' expr;
 // expr_stat:      {expression}? ;
 // expression:     assign_expr
-// assign_expr:    equality_expr { '=' equality_expr }
+// assign_expr:    uniary_expr { '=' uniary_expr }
+// uniary_expr:    { '*' | '&' }? equality_expr
 // equality_expr:  relational_expr { '==' | '!='  relational_expr }
 // relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}
 // sum_expr        :mul_expr { '+'|'-' mul_exp }
@@ -241,6 +252,7 @@ static Node for_stat();
 static Node expr_stat();
 static Node expression();
 static Node assign_expr();
+static Node uniary_expr();
 static Node eq_expr();
 static Node rel_expr();
 static Node sum_expr();
@@ -279,31 +291,31 @@ static Node declaration() {
 }
 
 Type type_spec() {
+  Type ty = NULL;
   if (consume(TK_VOID))
-    return voidtype;
-
-  if (consume(TK_UNSIGNED)) {
+    ty = voidtype;
+  else if (consume(TK_UNSIGNED)) {
     if (consume(TK_CHAR))
-      return uchartype;
-    if (consume(TK_SHORT))
-      return ushorttype;
-    if (consume(TK_INT))
-      return uinttype;
-    if (consume(TK_LONG))
-      return ulongtype;
-  }
+      ty = uchartype;
+    else if (consume(TK_SHORT))
+      ty = ushorttype;
+    else if (consume(TK_INT))
+      ty = uinttype;
+    else if (consume(TK_LONG))
+      ty = ulongtype;
+  } else if (consume(TK_CHAR))
+    ty = chartype;
+  else if (consume(TK_SHORT))
+    ty = shorttype;
+  else if (consume(TK_INT))
+    ty = inttype;
+  else if (consume(TK_LONG))
+    ty = longtype;
 
-  if (consume(TK_CHAR))
-    return chartype;
-  if (consume(TK_SHORT))
-    return shorttype;
-  if (consume(TK_INT))
-    return inttype;
-  if (consume(TK_LONG))
-    return longtype;
+  while (ty && consume(TK_STAR))
+    ty = ptr_type(ty);
 
-  error("unknown type %s", t->name);
-  return NULL;
+  return ty;
 }
 
 static Node function() {
@@ -437,7 +449,7 @@ static Node while_stat() {
   Node n = mknode(A_FOR);
   expect(TK_WHILE);
   expect(TK_OPENING_PARENTHESES);
-  n->cond = eq_expr();
+  n->cond = expression();
   expect(TK_CLOSING_PARENTHESES);
   n->body = statement(0);
   return n;
@@ -490,18 +502,26 @@ static Node expression() {
 }
 
 static Node assign_expr() {
-  Node n = eq_expr();
+  Node n = uniary_expr();
   if (!match(TK_EQUAL)) {
     return n;
   }
 
-  if (n->kind != A_VAR) {
+  if (n->kind != A_VAR && n->kind != A_DEFERENCE) {
     error("lvalue expected!");
   }
-  n->kind = A_VAR;
+  // n->kind = A_VAR;
   expect(TK_EQUAL);
 
   return mkbinary(A_ASSIGN, n, expression());
+}
+
+static Node uniary_expr() {
+  if (consume(TK_AND))
+    return mkuniary(A_ADDRESS_OF, uniary_expr());
+  if (consume(TK_STAR))
+    return mkuniary(A_DEFERENCE, uniary_expr());
+  return eq_expr();
 }
 
 static Node eq_expr() {
@@ -577,7 +597,7 @@ static Node primary() {
   }
 
   if (consume(TK_OPENING_PARENTHESES)) {
-    Node n = eq_expr();
+    Node n = expression();
     expect(TK_CLOSING_PARENTHESES);
     return n;
   }

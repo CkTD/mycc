@@ -34,13 +34,14 @@ static unsigned long hash(unsigned char* str, unsigned n) {
   return hash;
 }
 
+#define STSIZE 128
 static struct string {
   char* s;
   struct string* next;
-} * string_table[128];
+} * string_table[STSIZE];
 
 char* stringn(char* s, int n) {
-  unsigned h = hash((unsigned char*)s, n) % 128;
+  unsigned h = hash((unsigned char*)s, n) % STSIZE;
   for (struct string* i = string_table[h]; i; i = i->next) {
     if (strlen(i->s) == n && strncmp(i->s, s, n) == 0)
       return i->s;

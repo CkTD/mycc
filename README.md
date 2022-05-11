@@ -44,7 +44,7 @@
         - [x] long
         - [ ] long long
     - [ ] floaing types
-    - [ ] pointer types
+    - [x] pointer types
     - [ ] enumerated types
     - [ ] function types
     - [ ] array types
@@ -60,8 +60,11 @@
         - [ ] floating constant
         - [ ] character constant
     - [ ] string literials
+- [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
 - [ ] [declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [ ] init list
-- [ ] Other
+- [ ] Others
     - [ ] remove print statement by calling library function "printf"
     - [ ] for test, compile the source code with gcc, use the output of gcc as target output
+    - [ ] for debug: add corrsponding source line in output file 
+    - [ ] add source location in error message

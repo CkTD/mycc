@@ -23,6 +23,8 @@ enum {
   TY_USHRT,
   TY_UINT,
   TY_ULONG,
+
+  TY_POINTER,
 };
 
 extern Type voidtype;
@@ -41,6 +43,10 @@ struct type {
   Type base;
 };
 
+Type type(int kind, Type base, int size);
+Type ptr_type(Type base);
+Type deref_type(Type ptr);
+int is_pointer(Type t);
 int is_signed(Type t);
 Type integral_promote(Type t);
 Type usual_arithmetic_conversion(Type t1, Type t2);
@@ -60,6 +66,7 @@ enum {
   TK_ADD,
   TK_SUB,
   TK_SLASH,
+  TK_AND,
   TK_EQUAL,
   TK_EQUALEQUAL,
   TK_NOTEQUAL,
@@ -123,6 +130,9 @@ enum {
   // 5 left
   A_MUL,
   A_DIV,
+  // 3 right
+  A_ADDRESS_OF,
+  A_DEFERENCE,
   // primary
   A_NUM,
   A_VAR,

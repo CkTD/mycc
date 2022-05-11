@@ -1,0 +1,9 @@
+void func(int *i) {
+    print *i;
+}
+
+void main() {
+    int i;
+    i = 12345;
+    func(i);
+}

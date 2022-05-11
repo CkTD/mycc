@@ -1,5 +1,5 @@
 #include "inc.h"
-#include "stddef.h"
+#include "stdlib.h"
 
 Type voidtype = &(struct type){TY_VOID, 0};
 Type chartype = &(struct type){TY_CHAR, 1};
@@ -11,8 +11,47 @@ Type ushorttype = &(struct type){TY_USHRT, 2};
 Type uinttype = &(struct type){TY_UINT, 4};
 Type ulongtype = &(struct type){TY_ULONG, 8};
 
+#define TTSIZE 128
+static struct type_entry {
+  Type t;
+  struct type_entry* next;
+} * type_table[TTSIZE];
+
+Type type(int kind, Type base, int size) {
+  unsigned h = (kind ^ (unsigned long)base) % TTSIZE;
+  for (struct type_entry* i = type_table[h]; i; i = i->next) {
+    if (i->t->kind == kind && i->t->base == base && i->t->size == size)
+      return i->t;
+  }
+
+  struct type_entry* e = calloc(1, sizeof(struct type_entry));
+  e->t = calloc(1, sizeof(struct type));
+  e->t->kind = kind;
+  e->t->base = base;
+  e->t->size = size;
+  e->next = type_table[h];
+  type_table[h] = e;
+
+  return e->t;
+}
+
+Type ptr_type(Type base) {
+  return type(TY_POINTER, base, 8);
+}
+
+Type deref_type(Type ptr) {
+  if (ptr->kind != TY_POINTER)
+    error("can only dereference a pointer");
+  return ptr->base;
+}
+
+int is_pointer(Type t) {
+  return t->kind == TY_POINTER;
+}
+
 int is_signed(Type t) {
-  return t == chartype || t == shorttype || t == inttype || t == longtype;
+  return t == chartype || t == shorttype || t == inttype || t == longtype ||
+         t->kind == TY_POINTER;
 }
 
 int is_unsigned(Type t) {

@@ -127,6 +127,39 @@ static void compare(Node n) {
   fprintf(stdout, "\tmovzbl\t%%al, %%eax\n");
 }
 
+static void gen_load(Type ty) {
+  fprintf(stdout, "\tpopq\t%%rax\n");
+  if (ty == chartype || ty == uchartype)
+    fprintf(stdout, "\tmovb\t(%%rax), %%al\n");
+  else if (ty == shorttype || ty == ushorttype)
+    fprintf(stdout, "\tmovw\t(%%rax), %%ax\n");
+  else if (ty == inttype || ty == uinttype)
+    fprintf(stdout, "\tmovl\t(%%rax), %%eax\n");
+  else if (ty == longtype || ty == ulongtype || is_pointer(ty))
+    fprintf(stdout, "\tmovq\t(%%rax), %%rax\n");
+  else
+    error("load unknown type");
+
+  fprintf(stdout, "\tpushq\t%%rax\n");
+}
+
+static void gen_store(Type ty) {
+  fprintf(stdout, "\tpopq\t%%rax\n");
+  fprintf(stdout, "\tpopq\t%%rdi\n");
+  if (ty == chartype || ty == uchartype)
+    fprintf(stdout, "\tmovb\t%%al, (%%rdi)\n");
+  else if (ty == shorttype || ty == ushorttype)
+    fprintf(stdout, "\tmovw\t%%ax, (%%rdi)\n");
+  else if (ty == inttype || ty == uinttype)
+    fprintf(stdout, "\tmovl\t%%eax, (%%rdi)\n");
+  else if (ty == longtype || ty == ulongtype || is_pointer(ty))
+    fprintf(stdout, "\tmovq\t%%rax, (%%rdi)\n");
+  else
+    error("store unknown type");
+
+  fprintf(stdout, "\tpushq\t%%rax\n");
+}
+
 static void gen_addr(Node n) {
   if (n->kind == A_VAR) {
     if (n->is_global)
@@ -136,40 +169,18 @@ static void gen_addr(Node n) {
     fprintf(stdout, "\tpushq\t%%rax\n");
     return;
   }
+  if (n->kind == A_DEFERENCE) {
+    gen_addr(n->left);
+    gen_load(n->left->type);
+    return;
+  }
   error("not a lvalue");
 }
 
-static void gen_load(Node n) {
-  fprintf(stdout, "\tpopq\t%%rax\n");
-  if (n->type == chartype || n->type == uchartype)
-    fprintf(stdout, "\tmovb\t(%%rax), %%al\n");
-  else if (n->type == shorttype || n->type == ushorttype)
-    fprintf(stdout, "\tmovw\t(%%rax), %%ax\n");
-  else if (n->type == inttype || n->type == uinttype)
-    fprintf(stdout, "\tmovl\t(%%rax), %%eax\n");
-  else if (n->type == longtype || n->type == ulongtype)
-    fprintf(stdout, "\tmovq\t(%%rax), %%rax\n");
-  else
-    error("load unknown type");
-
-  fprintf(stdout, "\tpushq\t%%rax\n");
-}
-
-static void gen_store(Node n) {
-  fprintf(stdout, "\tpopq\t%%rax\n");
-  fprintf(stdout, "\tpopq\t%%rdi\n");
-  if (n->type == chartype || n->type == uchartype)
-    fprintf(stdout, "\tmovb\t%%al, (%%rdi)\n");
-  else if (n->type == shorttype || n->type == ushorttype)
-    fprintf(stdout, "\tmovw\t%%ax, (%%rdi)\n");
-  else if (n->type == inttype || n->type == uinttype)
-    fprintf(stdout, "\tmovl\t%%eax, (%%rdi)\n");
-  else if (n->type == longtype || n->type == ulongtype)
-    fprintf(stdout, "\tmovq\t%%rax, (%%rdi)\n");
-  else
-    error("load unknown type");
-
-  fprintf(stdout, "\tpushq\t%%rax\n");
+static void gen_deref(Node n) {
+  gen_addr(n->left);
+  gen_load(n->left->type);
+  gen_load(deref_type(n->left->type));
 }
 
 // load an int constant
@@ -363,18 +374,25 @@ static void gen_expr(Node n) {
       return;
     case A_VAR:
       gen_addr(n);
-      gen_load(n);
+      gen_load(n->type);
       return;
     case A_ASSIGN:
+      fprintf(stdout, "\t// assignment\n");
       gen_addr(n->left);
       gen_expr(n->right);
-      gen_store(n->left);
+      gen_store(n->left->type);
       return;
     case A_FUNC_CALL:
       gen_funccall(n);
       return;
     case A_CONVERSION:
       gen_conversion(n);
+      return;
+    case A_DEFERENCE:
+      gen_deref(n);
+      return;
+    case A_ADDRESS_OF:
+      gen_addr(n->left);
       return;
   }
 
