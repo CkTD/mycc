@@ -276,7 +276,7 @@ static Node sum_expr();
 static Node mul_expr();
 static Node primary();
 static Node func_call(const char* name);
-static Node array_subscripting(const char* name);
+static Node array_subscripting(Node array);
 
 static int is_function;
 static int check_next_top_level_item() {
@@ -355,6 +355,22 @@ static Node init_declarator(Type ty) {
   return NULL;
 }
 
+static Type array_postfix(Type base) {
+  if (consume(TK_OPENING_BRACKETS)) {
+    if (consume(TK_CLOSING_BRACKETS))
+      return array_type(array_postfix(base), 0);
+
+    Node n = expression();
+    expect(TK_CLOSING_BRACKETS);
+    if (n->kind != A_NUM)
+      error("not implemented: non integer constant array length");
+    if (n->intvalue == 0)
+      error("array size shall greater than zeror");
+    return array_type(array_postfix(base), n->intvalue);
+  }
+  return base;
+}
+
 static Node declarator(Type ty) {
   // ptr
   while (ty && consume(TK_STAR))
@@ -363,33 +379,9 @@ static Node declarator(Type ty) {
   const char* name = expect(TK_IDENT)->name;
 
   // array
-  Node head = NULL;
-  while (consume(TK_OPENING_BRACKETS)) {
-    if (consume(TK_CLOSING_BRACKETS)) {
-      Node n = mknode(A_NOOP);
-      n->next = head;
-      head = n;
-    } else {
-      Node n = expression();
-      n->next = head;
-      head = n;
-      expect(TK_CLOSING_BRACKETS);
-    }
-  }
-  for (; head; head = head->next) {
-    if (head->kind == A_NUM) {
-      if (head->intvalue == 0)
-        error("array size shall greater than zeror");
-      ty = array_type(ty, head->intvalue);
-    } else if (head->kind == A_NOOP)
-      ty = array_type(ty, 0);
-    else
-      error("not implemented: non integer constant array length");
-  }
+  ty = array_postfix(ty);
 
-  if (is_function)
-    return mklvar(name, ty);
-  return mkgvar(name, ty);
+  return is_function ? mklvar(name, ty) : mkgvar(name, ty);
 }
 
 static Node function() {
@@ -663,14 +655,15 @@ static Node primary() {
     if (match(TK_OPENING_PARENTHESES))
       return func_call(tok->name);
 
-    // array subscripting
-    if (match(TK_OPENING_BRACKETS))
-      return array_subscripting(tok->name);
-
-    // variable
     Node v = find_var(tok->name);
     if (!v)
       error("undefined variable");
+
+    // array subscripting
+    if (match(TK_OPENING_BRACKETS))
+      return array_subscripting(v);
+
+    // variable
     return v;
   }
 
@@ -721,19 +714,17 @@ static Node func_call(const char* name) {
   return n;
 }
 
-static Node array_subscripting(const char* name) {
-  expect(TK_OPENING_BRACKETS);
-  Node a = find_var(name);
-  if (!a)
-    error("array \"%s\" not defined", name);
-  if (!is_array(a->type))
-    error("only array can be subscripted");
-  Node n = mknode(A_ARRAY_SUBSCRIPTING);
-  n->array = a;
-  n->index = mkcvs(ulongtype, expression());
-  n->type = a->type->base;
-  expect(TK_CLOSING_BRACKETS);
-
+static Node array_subscripting(Node n) {
+  while (consume(TK_OPENING_BRACKETS)) {
+    if (!is_array(n->type))
+      error("only array can be subscripted");
+    Node s = mknode(A_ARRAY_SUBSCRIPTING);
+    s->index = mkcvs(ulongtype, expression());
+    s->array = n;
+    s->type = n->type->base;
+    n = s;
+    expect(TK_CLOSING_BRACKETS);
+  }
   return n;
 }
 

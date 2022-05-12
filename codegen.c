@@ -185,8 +185,13 @@ static void gen_addr(Node n) {
     gen_expr(n->index);
     fprintf(stdout, "\tpopq\t%%rax\n");
     fprintf(stdout, "\tpopq\t%%rdi\n");
-    fprintf(stdout, "\tleaq\t(%%rdi, %%rax, %d), %%rax\n",
-            n->array->type->base->size);
+    int size = n->array->type->base->size;
+    if (size <= 8) {
+      fprintf(stdout, "\tleaq\t(%%rdi, %%rax, %d), %%rax\n", size);
+    } else {
+      fprintf(stdout, "\timulq\t$%d, %%rax\n", size);
+      fprintf(stdout, "\tleaq\t(%%rdi, %%rax), %%rax\n");
+    }
     fprintf(stdout, "\tpushq\t%%rax\n");
     return;
   }
