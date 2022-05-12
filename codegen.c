@@ -55,7 +55,7 @@ static void gen_stat(Node n);
 static void add(Node n) {
   if (n->type == inttype || n->type == uinttype)
     fprintf(stdout, "\taddl\t%%edi, %%eax\n");
-  else if (n->type == longtype || n->type == ulongtype)
+  else if (n->type == longtype || n->type == ulongtype || is_ptr(n->type))
     fprintf(stdout, "\taddq\t%%rdi, %%rax\n");
   else
     error("unkonwn type");
@@ -63,7 +63,7 @@ static void add(Node n) {
 static void sub(Node n) {
   if (n->type == inttype || n->type == uinttype)
     fprintf(stdout, "\tsubl\t%%edi, %%eax\n");
-  else if (n->type == longtype || n->type == ulongtype)
+  else if (n->type == longtype || n->type == ulongtype || is_ptr(n->type))
     fprintf(stdout, "\tsubq\t%%rdi, %%rax\n");
   else
     error("unkonwn type");
@@ -112,7 +112,7 @@ static void compare(Node n) {
       cd = "l";
     else if (n->kind == A_LE)
       cd = "le";
-  } else if (is_unsigned(n->left->type)) {
+  } else if (is_unsigned(n->left->type) || is_ptr(n->left->type)) {
     if (n->kind == A_EQ)
       cd = "e";
     else if (n->kind == A_NE)
@@ -139,7 +139,7 @@ static void gen_load(Type ty) {
     fprintf(stdout, "\tmovw\t(%%rax), %%ax\n");
   else if (ty == inttype || ty == uinttype)
     fprintf(stdout, "\tmovl\t(%%rax), %%eax\n");
-  else if (ty == longtype || ty == ulongtype || is_pointer(ty))
+  else if (ty == longtype || ty == ulongtype || is_ptr(ty))
     fprintf(stdout, "\tmovq\t(%%rax), %%rax\n");
   else
     error("load unknown type");
@@ -156,8 +156,10 @@ static void gen_store(Type ty) {
     fprintf(stdout, "\tmovw\t%%ax, (%%rdi)\n");
   else if (ty == inttype || ty == uinttype)
     fprintf(stdout, "\tmovl\t%%eax, (%%rdi)\n");
-  else if (ty == longtype || ty == ulongtype || is_pointer(ty))
+  else if (ty == longtype || ty == ulongtype || is_ptr(ty))
     fprintf(stdout, "\tmovq\t%%rax, (%%rdi)\n");
+  else if (is_array(ty))
+    error("assignment to expression with array type");
   else
     error("store unknown type");
 
@@ -175,13 +177,22 @@ static void gen_addr(Node n) {
   }
 
   if (n->kind == A_DEFERENCE) {
-    gen_addr(n->left);
-    gen_load(n->left->type);
-    return;
+    if (!is_ptr(n->left->type))
+      error("can only dereference pointer");
+
+    if (n->left->kind == A_VAR) {
+      gen_addr(n->left);
+      return gen_load(n->left->type);
+    }
+    return gen_expr(n->left);
   }
 
   if (n->kind == A_ARRAY_SUBSCRIPTING) {
-    gen_addr(n->array);
+    if (is_array(n->array->type))
+      gen_addr(n->array);
+    else  // pointer
+      gen_expr(n->array);
+
     gen_expr(n->index);
     fprintf(stdout, "\tpopq\t%%rax\n");
     fprintf(stdout, "\tpopq\t%%rdi\n");
@@ -393,7 +404,8 @@ static void gen_expr(Node n) {
     case A_VAR:
     case A_ARRAY_SUBSCRIPTING:
       gen_addr(n);
-      gen_load(n->type);
+      if (!is_array(n->type))
+        gen_load(n->type);
       return;
     case A_ASSIGN:
       fprintf(stdout, "\t// assignment\n");

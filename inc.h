@@ -48,8 +48,10 @@ Type type(int kind, Type base, int size);
 Type ptr_type(Type base);
 Type deref_type(Type ptr);
 Type array_type(Type base, int n);
-int is_pointer(Type t);
+int is_ptr(Type t);
 int is_array(Type t);
+Type array_to_ptr(Type a);
+int is_ptr_compatiable(Type a, Type b);
 int is_signed(Type t);
 int is_unsigned(Type t);
 int is_integer(Type t);
@@ -210,7 +212,7 @@ struct node {
   Node args;
 
   // A_ARRAY_SUBSCRIPTING
-  Node array;
+  Node array;  // array / pointer
   Node index;
 
   // A_FUNC_DEF

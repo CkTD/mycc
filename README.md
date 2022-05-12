@@ -19,6 +19,7 @@
 
 ## Concept
 
+* [Computer Systems A Programmers Perspective (3rd)](https://github.com/Sorosliu1029/CSAPP-Labs/blob/master/Computer%20Systems%20A%20Programmers%20Perspective%20(3rd).pdf)
 * [Recursive descent parser](https://en.wikipedia.org/wiki/Recursive_descent_parser)
 * [LL parser](https://en.wikipedia.org/wiki/LL_parser)
 * Scope [wiki](https://en.wikipedia.org/wiki/Scope_(computer_science)) [C](http://port70.net/~nsz/c/c99/n1256.html#6.2.1)
@@ -47,7 +48,7 @@
     - [x] pointer types
     - [ ] enumerated types
     - [ ] function types
-    - [ ] array types [array declarator](http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2)
+    - [x] array types [array declarator](http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2)
     - [ ] struct types
     - [ ] union types
 - [ ] [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)

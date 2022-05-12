@@ -40,6 +40,7 @@ static Token consume(int kind) {
 static int is_lvalue(Node node) {
   switch (node->kind) {
     case A_VAR:
+      return !is_array(node->type);
     case A_DEFERENCE:
     case A_ARRAY_SUBSCRIPTING:
       return 1;
@@ -51,6 +52,13 @@ static int is_lvalue(Node node) {
 static Node mknode(int kind) {
   Node n = calloc(1, sizeof(struct node));
   n->kind = kind;
+  return n;
+}
+
+static Node mkicons(int intvalue) {
+  Node n = mknode(A_NUM);
+  n->type = inttype;
+  n->intvalue = intvalue;
   return n;
 }
 
@@ -86,29 +94,75 @@ static Node mkcvs(Type t, Node body) {
 
   Node n = mkaux(A_CONVERSION, body);
   // body->type -> type
-  if (is_pointer(t) && is_pointer(body->type))
-    warn("convert between different pointer types");
-  else if (is_pointer(t) || is_pointer(body->type))
+  if (is_ptr(t) && is_ptr(body->type)) {
+    if (!is_ptr_compatiable(t, body->type))
+      warn("convert between incompatiable pointers");
+  } else if (is_ptr(t) || is_ptr(body->type))
     warn("convert between pointer and integeral types");
+  else if (!is_integer(t) || !is_integer(body->type))
+    error("not implemented: what type?");
   n->type = t;
   return n;
 }
 
 static Node mkbinary(int kind, Node left, Node right) {
   Node n = mknode(kind);
-  if (kind == A_ASSIGN) {
-    right = mkcvs(left->type, right);
-    n->type = left->type;
-  } else {
-    Type t = usual_arithmetic_conversion(left->type, right->type);
-    left = mkcvs(t, left);
-    right = mkcvs(t, right);
-    // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p6
-    // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p3
-    n->type = (kind >= A_EQ && kind <= A_GE) ? inttype : t;
-  }
   n->left = left;
   n->right = right;
+
+  if (kind == A_ASSIGN) {
+    n->right = mkcvs(n->left->type, n->right);
+    n->type = n->left->type;
+    return n;
+  }
+
+  if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
+    if (!is_ptr_compatiable(n->left->type, n->right->type))
+      error("invalid operands to binary, incompatiable pointer");
+
+    if (kind == A_SUB) {
+      // http://port70.net/~nsz/c/c99/n1256.html#6.5.6p9
+      n->type = inttype;
+      return mkbinary(A_DIV, n, mkicons(n->left->type->base->size));
+    }
+
+    if (kind >= A_EQ && kind <= A_GE) {
+      // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p6
+      // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p5
+      n->type = inttype;
+      return n;
+    }
+
+    error("invalid operands to binary");
+  }
+
+  if (is_ptr(n->left->type) || is_ptr(n->right->type)) {
+    // http://port70.net/~nsz/c/c99/n1256.html#6.5.6p8
+    if (kind == A_ADD || kind == A_SUB) {
+      if (kind == A_SUB && !is_integer(n->right->type))
+        error("invalid operands to binary");
+      if (is_ptr(n->right->type)) {
+        Node temp = n->right;
+        n->right = n->left;
+        n->left = temp;
+      }
+      if (!is_integer(n->right->type))
+        error("invalid operands to binary");
+      n->right = mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size));
+      n->type = n->left->type;
+      if (is_array(n->type))
+        n->type = array_to_ptr(n->type);
+      return n;
+    }
+    error("invalid operands to binary");
+  }
+
+  Type t = usual_arithmetic_conversion(n->left->type, n->right->type);
+  n->left = mkcvs(t, n->left);
+  n->right = mkcvs(t, n->right);
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p6
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p3
+  n->type = (kind >= A_EQ && kind <= A_GE) ? inttype : t;
   return n;
 }
 
@@ -343,7 +397,7 @@ static Node init_declarator(Type ty) {
   Node n = declarator(ty);
   if (consume(TK_EQUAL)) {
     Node e = expression();
-    if (is_pointer(ty))
+    if (is_ptr(ty))
       error("not implemented: initialize array");
     if (is_function)
       return mkbinary(A_ASSIGN, n, e);
@@ -716,10 +770,10 @@ static Node func_call(const char* name) {
 
 static Node array_subscripting(Node n) {
   while (consume(TK_OPENING_BRACKETS)) {
-    if (!is_array(n->type))
-      error("only array can be subscripted");
+    if (!is_ptr(n->type))
+      error("only array/pointer can be subscripted");
     Node s = mknode(A_ARRAY_SUBSCRIPTING);
-    s->index = mkcvs(ulongtype, expression());
+    s->index = mkcvs(longtype, expression());
     s->array = n;
     s->type = n->type->base;
     n = s;

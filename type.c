@@ -51,12 +51,28 @@ Type array_type(Type base, int n) {
   return type(TY_ARRAY, base, n * base->size);
 }
 
-int is_pointer(Type t) {
-  return t->kind == TY_POINTER;
+int is_ptr(Type t) {
+  return t->kind == TY_POINTER || is_array(t);
 }
 
 int is_array(Type t) {
   return t->kind == TY_ARRAY;
+}
+
+Type array_to_ptr(Type a) {
+  if (!is_array(a))
+    error("not an array type");
+  return ptr_type(a->base);
+}
+
+int is_ptr_compatiable(Type a, Type b) {
+  if (!is_ptr(a) || !is_ptr(b))
+    error("not a pointer type");
+  if (is_array(a))
+    a = array_to_ptr(a);
+  if (is_array(b))
+    b = array_to_ptr(b);
+  return a == b;
 }
 
 int is_signed(Type t) {
@@ -64,8 +80,7 @@ int is_signed(Type t) {
 }
 
 int is_unsigned(Type t) {
-  return t == uchartype || t == ushorttype || t == uinttype || t == ulongtype ||
-         t->kind == TY_POINTER;
+  return t == uchartype || t == ushorttype || t == uinttype || t == ulongtype;
 }
 
 int is_integer(Type t) {
