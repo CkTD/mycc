@@ -45,17 +45,31 @@ Type deref_type(Type ptr) {
   return ptr->base;
 }
 
+Type array_type(Type base, int n) {
+  if (!base->size)
+    error("array of incomplete type");
+  return type(TY_ARRAY, base, n * base->size);
+}
+
 int is_pointer(Type t) {
   return t->kind == TY_POINTER;
 }
 
+int is_array(Type t) {
+  return t->kind == TY_ARRAY;
+}
+
 int is_signed(Type t) {
-  return t == chartype || t == shorttype || t == inttype || t == longtype ||
-         t->kind == TY_POINTER;
+  return t == chartype || t == shorttype || t == inttype || t == longtype;
 }
 
 int is_unsigned(Type t) {
-  return t == uchartype || t == ushorttype || t == uinttype || t == ulongtype;
+  return t == uchartype || t == ushorttype || t == uinttype || t == ulongtype ||
+         t->kind == TY_POINTER;
+}
+
+int is_integer(Type t) {
+  return is_signed(t) || is_unsigned(t);
 }
 
 Type integral_promote(Type t) {

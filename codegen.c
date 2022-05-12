@@ -46,6 +46,9 @@ const char* new_label() {
   return string(buf);
 }
 
+static void gen_expr(Node n);
+static void gen_stat(Node n);
+
 // binary expressions
 // get operand from: %rax(left) and %rdi(right)
 // store result to : %rax
@@ -109,7 +112,7 @@ static void compare(Node n) {
       cd = "l";
     else if (n->kind == A_LE)
       cd = "le";
-  } else {
+  } else if (is_unsigned(n->left->type)) {
     if (n->kind == A_EQ)
       cd = "e";
     else if (n->kind == A_NE)
@@ -122,7 +125,8 @@ static void compare(Node n) {
       cd = "b";
     else if (n->kind == A_LE)
       cd = "be";
-  }
+  } else
+    error("compare what?");
   fprintf(stdout, "\tset%s\t%%al\n", cd);
   fprintf(stdout, "\tmovzbl\t%%al, %%eax\n");
 }
@@ -169,9 +173,21 @@ static void gen_addr(Node n) {
     fprintf(stdout, "\tpushq\t%%rax\n");
     return;
   }
+
   if (n->kind == A_DEFERENCE) {
     gen_addr(n->left);
     gen_load(n->left->type);
+    return;
+  }
+
+  if (n->kind == A_ARRAY_SUBSCRIPTING) {
+    gen_addr(n->array);
+    gen_expr(n->index);
+    fprintf(stdout, "\tpopq\t%%rax\n");
+    fprintf(stdout, "\tpopq\t%%rdi\n");
+    fprintf(stdout, "\tleaq\t(%%rdi, %%rax, %d), %%rax\n",
+            n->array->type->base->size);
+    fprintf(stdout, "\tpushq\t%%rax\n");
     return;
   }
   error("not a lvalue");
@@ -190,9 +206,6 @@ static void gen_iconst(Node n) {
   fprintf(stdout, "\tmovl\t$%d, %%eax\n", n->intvalue);
   fprintf(stdout, "\tpushq\t%%rax\n");
 }
-
-static void gen_expr(Node n);
-static void gen_stat(Node n);
 
 static void gen_if(Node n) {
   const char* lend = new_label();
@@ -373,6 +386,7 @@ static void gen_expr(Node n) {
       gen_iconst(n);
       return;
     case A_VAR:
+    case A_ARRAY_SUBSCRIPTING:
       gen_addr(n);
       gen_load(n->type);
       return;

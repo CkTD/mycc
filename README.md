@@ -47,7 +47,7 @@
     - [x] pointer types
     - [ ] enumerated types
     - [ ] function types
-    - [ ] array types
+    - [ ] array types [array declarator](http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2)
     - [ ] struct types
     - [ ] union types
 - [ ] [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)

@@ -23,8 +23,9 @@ enum {
   TY_USHRT,
   TY_UINT,
   TY_ULONG,
-
+  //
   TY_POINTER,
+  TY_ARRAY,
 };
 
 extern Type voidtype;
@@ -46,8 +47,12 @@ struct type {
 Type type(int kind, Type base, int size);
 Type ptr_type(Type base);
 Type deref_type(Type ptr);
+Type array_type(Type base, int n);
 int is_pointer(Type t);
+int is_array(Type t);
 int is_signed(Type t);
+int is_unsigned(Type t);
+int is_integer(Type t);
 Type integral_promote(Type t);
 Type usual_arithmetic_conversion(Type t1, Type t2);
 
@@ -60,6 +65,8 @@ enum {
   TK_CLOSING_BRACES,
   TK_OPENING_PARENTHESES,
   TK_CLOSING_PARENTHESES,
+  TK_OPENING_BRACKETS,
+  TK_CLOSING_BRACKETS,
   TK_COMMA,
   TK_SIMI,
   TK_STAR,
@@ -133,6 +140,9 @@ enum {
   // 3 right
   A_ADDRESS_OF,
   A_DEFERENCE,
+  // 2 left
+  A_FUNC_CALL,
+  A_ARRAY_SUBSCRIPTING,
   // primary
   A_NUM,
   A_VAR,
@@ -144,14 +154,14 @@ enum {
   A_CONTINUE,
   A_RETURN,
   A_PRINT,
-  /***** function *****/
-  A_FUNC_DEF,
-  A_FUNC_CALL,
   /***** auxiliary *****/
   A_DLIST,
   A_BLOCK,
   A_EXPR_STAT,
   A_CONVERSION,
+  /***** other *****/
+  A_NOOP,
+  A_FUNC_DEF,
 };
 
 struct node {
@@ -198,6 +208,10 @@ struct node {
   // A_FUNC_CALL
   const char* callee_name;
   Node args;
+
+  // A_ARRAY_SUBSCRIPTING
+  Node array;
+  Node index;
 
   // A_FUNC_DEF
   Node globals;

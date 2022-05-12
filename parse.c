@@ -36,6 +36,18 @@ static Token consume(int kind) {
 /*******************
  * create AST Node *
  *******************/
+
+static int is_lvalue(Node node) {
+  switch (node->kind) {
+    case A_VAR:
+    case A_DEFERENCE:
+    case A_ARRAY_SUBSCRIPTING:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 static Node mknode(int kind) {
   Node n = calloc(1, sizeof(struct node));
   n->kind = kind;
@@ -54,7 +66,7 @@ static Node mkuniary(int kind, Node left) {
   if (kind == A_ADDRESS_OF) {
     if (left->kind == A_DEFERENCE)
       return left->left;
-    if (left->kind != A_VAR)
+    if (!is_lvalue(left))
       error("lvalue required as unary '&' operand");
     n->type = ptr_type(left->type);
   } else if (kind == A_DEFERENCE) {
@@ -69,6 +81,9 @@ static Node mkuniary(int kind, Node left) {
 }
 
 static Node mkcvs(Type t, Node body) {
+  if (body->type == t)
+    return body;
+
   Node n = mkaux(A_CONVERSION, body);
   // body->type -> type
   if (is_pointer(t) && is_pointer(body->type))
@@ -82,16 +97,12 @@ static Node mkcvs(Type t, Node body) {
 static Node mkbinary(int kind, Node left, Node right) {
   Node n = mknode(kind);
   if (kind == A_ASSIGN) {
-    if (left->type != right->type)
-      right = mkcvs(left->type, right);
+    right = mkcvs(left->type, right);
     n->type = left->type;
   } else {
     Type t = usual_arithmetic_conversion(left->type, right->type);
-    if (left->type != t)
-      left = mkcvs(t, left);
-    if (right->type != t)
-      right = mkcvs(t, right);
-
+    left = mkcvs(t, left);
+    right = mkcvs(t, right);
     // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p6
     // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p3
     n->type = (kind >= A_EQ && kind <= A_GE) ? inttype : t;
@@ -231,14 +242,16 @@ static Node mkgvar(const char* name, Type ty) {
 // print_stat:     'print' expr;
 // expr_stat:      {expression}? ;
 // expression:     assign_expr
-// assign_expr:    uniary_expr { '=' uniary_expr }
-// uniary_expr:    { '*' | '&' }? equality_expr
+// assign_expr:    equality_expr { '=' expression }
 // equality_expr:  relational_expr { '==' | '!='  relational_expr }
 // relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}
 // sum_expr        :mul_expr { '+'|'-' mul_exp }
-// mul_exp:        primary { '*'|'/' primary }
-// primary:        identifier arg_list? | number  | '(' expression ')'
+// mul_exp:        uniary_expr { '*'|'/' uniary_expr }
+// uniary_expr:    { '*' | '&' }? primary
+// primary:        identifier { arg_list | array_subscripting }? |
+//                 number  | '('expression ')'
 // arg_list:       '(' expression { ',' expression } ')'
+// array_subscripting: '[' expression ']'
 
 static Node trans_unit();
 static Node declaration();
@@ -263,6 +276,7 @@ static Node sum_expr();
 static Node mul_expr();
 static Node primary();
 static Node func_call(const char* name);
+static Node array_subscripting(const char* name);
 
 static int is_function;
 static int check_next_top_level_item() {
@@ -329,23 +343,49 @@ static Node init_declarator(Type ty) {
   Node n = declarator(ty);
   if (consume(TK_EQUAL)) {
     Node e = expression();
-    if (is_function) {
+    if (is_pointer(ty))
+      error("not implemented: initialize array");
+    if (is_function)
       return mkbinary(A_ASSIGN, n, e);
-    } else {
-      if (e->kind != A_NUM)
-        error("initialize global value should be integer constant");
-      n->init_value = e;
-      return NULL;
-    }
+    if (e->kind != A_NUM)
+      error("initialize global value should be integer constant");
+    n->init_value = e;
+    return NULL;
   }
   return NULL;
 }
 
 static Node declarator(Type ty) {
+  // ptr
   while (ty && consume(TK_STAR))
     ty = ptr_type(ty);
 
   const char* name = expect(TK_IDENT)->name;
+
+  // array
+  Node head = NULL;
+  while (consume(TK_OPENING_BRACKETS)) {
+    if (consume(TK_CLOSING_BRACKETS)) {
+      Node n = mknode(A_NOOP);
+      n->next = head;
+      head = n;
+    } else {
+      Node n = expression();
+      n->next = head;
+      head = n;
+      expect(TK_CLOSING_BRACKETS);
+    }
+  }
+  for (; head; head = head->next) {
+    if (head->kind == A_NUM) {
+      if (head->intvalue == 0)
+        error("array size shall greater than zeror");
+      ty = array_type(ty, head->intvalue);
+    } else if (head->kind == A_NOOP)
+      ty = array_type(ty, 0);
+    else
+      error("not implemented: non integer constant array length");
+  }
 
   if (is_function)
     return mklvar(name, ty);
@@ -435,9 +475,7 @@ static Node statement(int reuse_scope) {
     Node n = mknode(A_RETURN);
     if (consume(TK_SIMI))
       return n;
-    n->body = expression();
-    if (n->body->type != globals->type)
-      n->body = mkcvs(globals->type, n->body);
+    n->body = mkcvs(globals->type, expression());
     expect(TK_SIMI);
     return n;
   }
@@ -536,26 +574,17 @@ static Node expression() {
 }
 
 static Node assign_expr() {
-  Node n = uniary_expr();
+  Node n = eq_expr();
   if (!match(TK_EQUAL)) {
     return n;
   }
 
-  if (n->kind != A_VAR && n->kind != A_DEFERENCE) {
-    error("lvalue expected!");
-  }
-  // n->kind = A_VAR;
+  if (!is_lvalue(n))
+    error("lvalue required as left operand of assignment");
+
   expect(TK_EQUAL);
 
   return mkbinary(A_ASSIGN, n, expression());
-}
-
-static Node uniary_expr() {
-  if (consume(TK_AND))
-    return mkuniary(A_ADDRESS_OF, uniary_expr());
-  if (consume(TK_STAR))
-    return mkuniary(A_DEFERENCE, uniary_expr());
-  return eq_expr();
 }
 
 static Node eq_expr() {
@@ -599,20 +628,29 @@ static Node sum_expr() {
 }
 
 static Node mul_expr() {
-  Node n = primary();
+  Node n = uniary_expr();
   for (;;) {
     if (consume(TK_STAR))
-      n = mkbinary(A_MUL, n, primary());
+      n = mkbinary(A_MUL, n, uniary_expr());
     else if (consume(TK_SLASH))
-      n = mkbinary(A_DIV, n, primary());
+      n = mkbinary(A_DIV, n, uniary_expr());
     else
       return n;
   }
 }
 
+static Node uniary_expr() {
+  if (consume(TK_AND))
+    return mkuniary(A_ADDRESS_OF, uniary_expr());
+  if (consume(TK_STAR))
+    return mkuniary(A_DEFERENCE, uniary_expr());
+  return primary();
+}
+
 static Node primary() {
   Token tok;
 
+  // number
   if ((tok = consume(TK_NUM))) {
     Node n = mknode(A_NUM);
     n->type = inttype;
@@ -621,22 +659,29 @@ static Node primary() {
   }
 
   if ((tok = consume(TK_IDENT))) {
+    // function call
     if (match(TK_OPENING_PARENTHESES))
       return func_call(tok->name);
 
+    // array subscripting
+    if (match(TK_OPENING_BRACKETS))
+      return array_subscripting(tok->name);
+
+    // variable
     Node v = find_var(tok->name);
     if (!v)
       error("undefined variable");
     return v;
   }
 
+  // parentheses
   if (consume(TK_OPENING_PARENTHESES)) {
     Node n = expression();
     expect(TK_CLOSING_PARENTHESES);
     return n;
   }
 
-  error("parse: primary get unexpected token");
+  error("parse: primary get unexpected token \"%s\"", t->name);
   return NULL;
 }
 
@@ -673,6 +718,22 @@ static Node func_call(const char* name) {
       expect(TK_COMMA);
   };
   n->args = args;
+  return n;
+}
+
+static Node array_subscripting(const char* name) {
+  expect(TK_OPENING_BRACKETS);
+  Node a = find_var(name);
+  if (!a)
+    error("array \"%s\" not defined", name);
+  if (!is_array(a->type))
+    error("only array can be subscripted");
+  Node n = mknode(A_ARRAY_SUBSCRIPTING);
+  n->array = a;
+  n->index = mkcvs(ulongtype, expression());
+  n->type = a->type->base;
+  expect(TK_CLOSING_BRACKETS);
+
   return n;
 }
 
