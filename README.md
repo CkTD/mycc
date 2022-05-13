@@ -57,10 +57,15 @@
     - [x] type conversions: arguments to paramenter
 - [ ] [Lexical elements](http://port70.net/~nsz/c/c99/n1256.html#6.4)
     - [ ] [constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
-        - [=] integral constant
+        - [x] [integral constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
+            - [x] decimal
+            - [ ] octal / hex
+            - [ ] suffix
         - [ ] floating constant
         - [ ] character constant
-    - [x] string literials
+        - [x] string literials
+            - [x] simple escape
+            - [ ] octal/hex escape
 - [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
 - [ ] [declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [x] init list

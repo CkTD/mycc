@@ -117,6 +117,7 @@ struct token {
 };
 
 extern const char* token_str[];
+const char* escape(const char* s);
 Token tokenize(const char* input);
 
 /*************

@@ -589,7 +589,7 @@ static void gen_data(Node globals) {
         fprintf(stdout, "\t.section .rodata\n");
       n->name = new_label();
       fprintf(stdout, "%s:\n", n->name);
-      fprintf(stdout, "\t.string\t\"%s\"\n", n->string_value);
+      fprintf(stdout, "\t.string\t\"%s\"\n", escape(n->string_value));
     }
   }
 
