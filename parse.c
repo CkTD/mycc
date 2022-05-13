@@ -1,7 +1,5 @@
+#include <stdlib.h>
 #include "inc.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
 
 /***********************
  * handle input tokens *

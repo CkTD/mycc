@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "inc.h"
 
@@ -28,8 +27,7 @@
 // rip
 // eflags
 
-Node current_func;
-
+// register name maps
 static const char size_suffix[] = {[1] = 'b', [2] = 'w', [4] = 'l', [8] = 'q'};
 static const char* a_regs[] =
     {[1] = "al", [2] = "ax", [4] = "eax", [8] = "rax"};
@@ -39,16 +37,22 @@ static const char* arg_regs[][6] = {
     [4] = {"edi", "esi", "edx", "ecx", "r8d", "r9d"},
     [8] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"}};
 
+// unique label
 static int label_id = 0;
-const char* new_label() {
+static const char* new_label() {
   char buf[32];
   sprintf(buf, "L%d", label_id++);
   return string(buf);
 }
 
+static Node current_func;
+
 static void gen_expr(Node n);
 static void gen_stat(Node n);
 
+/******************************
+ *    generate expressions    *
+ ******************************/
 // binary expressions
 // get operand from: %rax(left) and %rdi(right)
 // store result to : %rax
@@ -60,6 +64,7 @@ static void add(Node n) {
   else
     error("unkonwn type");
 }
+
 static void sub(Node n) {
   if (n->type == inttype || n->type == uinttype)
     fprintf(stdout, "\tsubl\t%%edi, %%eax\n");
@@ -68,6 +73,7 @@ static void sub(Node n) {
   else
     error("unkonwn type");
 }
+
 static void mul(Node n) {
   if (n->type == inttype || n->type == uinttype)
     fprintf(stdout, "\timull\t%%edi, %%eax\n");
@@ -76,6 +82,7 @@ static void mul(Node n) {
   else
     error("unkonwn type");
 }
+
 static void divide(Node n) {
   if (n->type == inttype) {
     fprintf(stdout, "\tcdq\n");
@@ -92,7 +99,7 @@ static void divide(Node n) {
   } else
     error("unkonwn type");
 }
-// e, ne, g, ge, l, le
+
 static void compare(Node n) {
   if (n->type == inttype || n->type == uinttype)
     fprintf(stdout, "\tcmpl\t%%edi, %%eax\n");
@@ -129,6 +136,13 @@ static void compare(Node n) {
     error("compare what?");
   fprintf(stdout, "\tset%s\t%%al\n", cd);
   fprintf(stdout, "\tmovzbl\t%%al, %%eax\n");
+}
+
+static void gen_iconst(Node n) {
+  if (n->type != inttype)
+    error("a number constant must have type int");
+  fprintf(stdout, "\tmovl\t$%d, %%eax\n", n->intvalue);
+  fprintf(stdout, "\tpushq\t%%rax\n");
 }
 
 static void gen_load(Type ty) {
@@ -209,18 +223,144 @@ static void gen_addr(Node n) {
   error("not a lvalue");
 }
 
-static void gen_deref(Node n) {
-  gen_addr(n->left);
-  gen_load(n->left->type);
-  gen_load(deref_type(n->left->type));
+static void gen_funccall(Node n) {
+  fprintf(stdout, "// call function \"%s\"\n", n->callee_name);
+  Node node;
+  int nargs = 0;
+  list_for_each(n->args, node) {
+    gen_expr(node->body);
+    fprintf(stdout, "\tpopq\t%%%s\n", arg_regs[8][nargs]);
+    if (++nargs >= 6 || node->next == n->args)
+      break;  // after break, node point to the last register args
+  }
+  Node last_regarg = node;
+  list_for_each_reverse(n->args, node) {
+    if (node == last_regarg)
+      break;
+    gen_expr(node->body);
+  }
+
+  int l = label_id++;
+  fprintf(stdout, "\tmovq\t%%rsp, %%rax\n");
+  fprintf(stdout, "\tandq\t$0xf, %%rax\n");
+  fprintf(stdout, "\tcmp\t$0, %%rax\n");
+  fprintf(stdout, "\tjnz\tL.asc.%d\n", l);
+  fprintf(stdout, "\tmovq\t$0, %%rax\n");
+  fprintf(stdout, "\tcall\t%s\n", n->callee_name);
+  fprintf(stdout, "\tjmp\tL.asc.end.%d\n", l);
+  fprintf(stdout, "L.asc.%d:\n", l);
+  fprintf(stdout, "\tsubq\t$8, %%rsp\n");
+  fprintf(stdout, "\tmovq\t$0, %%rax\n");
+  fprintf(stdout, "\tcall\t%s\n", n->callee_name);
+  fprintf(stdout, "\taddq\t$8, %%rsp\n");
+  fprintf(stdout, "L.asc.end.%d:\n", l);
+  fprintf(stdout, "\tpushq\t%%rax\n");
+
+  fprintf(stdout, "// ---- call function \"%s\"\n", n->callee_name);
 }
 
-// load an int constant
-static void gen_iconst(Node n) {
-  if (n->type != inttype)
-    error("a number constant must have type int");
-  fprintf(stdout, "\tmovl\t$%d, %%eax\n", n->intvalue);
+static void gen_conversion(Node n) {
+  gen_expr(n->body);
+
+  // for now,  we only have integral type
+  if (n->body->type->size < n->type->size) {
+    fprintf(stdout, "\tpopq\t%%rax\n");
+    fprintf(stdout, "\tmov%c%c%c\t%%%s, %%%s\n",
+            is_signed(n->body->type) ? 's' : 'z',
+            size_suffix[n->body->type->size], size_suffix[n->type->size],
+            a_regs[n->body->type->size], a_regs[n->type->size]);
+    fprintf(stdout, "\tpushq\t%%rax\n");
+  }
+}
+
+static void gen_expr(Node n) {
+  switch (n->kind) {
+    case A_NUM:
+      gen_iconst(n);
+      return;
+    case A_VAR:
+    case A_ARRAY_SUBSCRIPTING:
+      gen_addr(n);
+      if (!is_array(n->type))
+        gen_load(n->type);
+      return;
+    case A_ASSIGN:
+      fprintf(stdout, "\t// assignment\n");
+      gen_addr(n->left);
+      gen_expr(n->right);
+      gen_store(n->left->type);
+      return;
+    case A_FUNC_CALL:
+      gen_funccall(n);
+      return;
+    case A_CONVERSION:
+      gen_conversion(n);
+      return;
+    case A_DEFERENCE:
+      gen_addr(n->left);
+      gen_load(n->left->type);
+      gen_load(deref_type(n->left->type));
+      return;
+    case A_ADDRESS_OF:
+      gen_addr(n->left);
+      return;
+  }
+
+  // The order of evaluation is unspecified
+  // https:// en.cppreference.com/w/cpp/language/eval_order
+  gen_expr(n->left);
+  gen_expr(n->right);
+  fprintf(stdout, "\tpopq\t%%rdi\n");
+  fprintf(stdout, "\tpopq\t%%rax\n");
+  switch (n->kind) {
+    case A_ADD:
+      add(n);
+      break;
+    case A_SUB:
+      sub(n);
+      break;
+    case A_DIV:
+      divide(n);
+      break;
+    case A_MUL:
+      mul(n);
+      break;
+    case A_EQ:
+    case A_NE:
+    case A_GT:
+    case A_LT:
+    case A_GE:
+    case A_LE:
+      compare(n);
+      break;
+    default:
+      error("unknown ast node");
+  }
   fprintf(stdout, "\tpushq\t%%rax\n");
+}
+
+/******************************
+ *    generate statements    *
+ ******************************/
+// jump locations for iteration statements (for, while, do-while)
+typedef struct jumploc* JumpLoc;
+struct jumploc {
+  const char** lcontinue;
+  const char** lbreak;
+  JumpLoc next;
+};
+static JumpLoc iterjumploc;
+
+static void iter_enter(const char** lcontinue, const char** lbreak) {
+  JumpLoc j = malloc(sizeof(struct jumploc));
+  j->lbreak = lbreak;
+  j->lcontinue = lcontinue;
+  j->next = iterjumploc;
+  iterjumploc = j;
+}
+
+static void iter_exit() {
+  iterjumploc = iterjumploc->next;
 }
 
 static void gen_if(Node n) {
@@ -244,26 +384,6 @@ static void gen_if(Node n) {
   }
 
   fprintf(stdout, "%s:\n", lend);
-}
-
-typedef struct jumploc* JumpLoc;
-struct jumploc {
-  const char** lcontinue;
-  const char** lbreak;
-  JumpLoc next;
-};
-JumpLoc iterjumploc;
-
-static void iter_enter(const char** lcontinue, const char** lbreak) {
-  JumpLoc j = malloc(sizeof(struct jumploc));
-  j->lbreak = lbreak;
-  j->lcontinue = lcontinue;
-  j->next = iterjumploc;
-  iterjumploc = j;
-}
-
-static void iter_exit() {
-  iterjumploc = iterjumploc->next;
 }
 
 static void gen_dowhile(Node n) {
@@ -346,120 +466,6 @@ static void gen_return(Node n) {
   fprintf(stdout, "\tjmp\tL.return.%s\n", current_func->name);
 }
 
-static void gen_funccall(Node n) {
-  fprintf(stdout, "// call function \"%s\"\n", n->callee_name);
-  Node node;
-  int nargs = 0;
-  list_for_each(n->args, node) {
-    gen_expr(node->body);
-    fprintf(stdout, "\tpopq\t%%%s\n", arg_regs[8][nargs]);
-    if (++nargs >= 6 || node->next == n->args)
-      break;  // after break, node point to the last register args
-  }
-  Node last_regarg = node;
-  list_for_each_reverse(n->args, node) {
-    if (node == last_regarg)
-      break;
-    gen_expr(node->body);
-  }
-
-  int l = label_id++;
-  fprintf(stdout, "\tmovq\t%%rsp, %%rax\n");
-  fprintf(stdout, "\tandq\t$0xf, %%rax\n");
-  fprintf(stdout, "\tcmp\t$0, %%rax\n");
-  fprintf(stdout, "\tjnz\tL.asc.%d\n", l);
-  fprintf(stdout, "\tmovq\t$0, %%rax\n");
-  fprintf(stdout, "\tcall\t%s\n", n->callee_name);
-  fprintf(stdout, "\tjmp\tL.asc.end.%d\n", l);
-  fprintf(stdout, "L.asc.%d:\n", l);
-  fprintf(stdout, "\tsubq\t$8, %%rsp\n");
-  fprintf(stdout, "\tmovq\t$0, %%rax\n");
-  fprintf(stdout, "\tcall\t%s\n", n->callee_name);
-  fprintf(stdout, "\taddq\t$8, %%rsp\n");
-  fprintf(stdout, "L.asc.end.%d:\n", l);
-  fprintf(stdout, "\tpushq\t%%rax\n");
-
-  fprintf(stdout, "// ---- call function \"%s\"\n", n->callee_name);
-}
-
-static void gen_conversion(Node n) {
-  gen_expr(n->body);
-
-  // for now,  we only have integral type
-  if (n->body->type->size < n->type->size) {
-    fprintf(stdout, "\tpopq\t%%rax\n");
-    fprintf(stdout, "\tmov%c%c%c\t%%%s, %%%s\n",
-            is_signed(n->body->type) ? 's' : 'z',
-            size_suffix[n->body->type->size], size_suffix[n->type->size],
-            a_regs[n->body->type->size], a_regs[n->type->size]);
-    fprintf(stdout, "\tpushq\t%%rax\n");
-  }
-}
-
-static void gen_expr(Node n) {
-  switch (n->kind) {
-    case A_NUM:
-      gen_iconst(n);
-      return;
-    case A_VAR:
-    case A_ARRAY_SUBSCRIPTING:
-      gen_addr(n);
-      if (!is_array(n->type))
-        gen_load(n->type);
-      return;
-    case A_ASSIGN:
-      fprintf(stdout, "\t// assignment\n");
-      gen_addr(n->left);
-      gen_expr(n->right);
-      gen_store(n->left->type);
-      return;
-    case A_FUNC_CALL:
-      gen_funccall(n);
-      return;
-    case A_CONVERSION:
-      gen_conversion(n);
-      return;
-    case A_DEFERENCE:
-      gen_deref(n);
-      return;
-    case A_ADDRESS_OF:
-      gen_addr(n->left);
-      return;
-  }
-
-  // The order of evaluation is unspecified
-  // https:// en.cppreference.com/w/cpp/language/eval_order
-  gen_expr(n->left);
-  gen_expr(n->right);
-  fprintf(stdout, "\tpopq\t%%rdi\n");
-  fprintf(stdout, "\tpopq\t%%rax\n");
-  switch (n->kind) {
-    case A_ADD:
-      add(n);
-      break;
-    case A_SUB:
-      sub(n);
-      break;
-    case A_DIV:
-      divide(n);
-      break;
-    case A_MUL:
-      mul(n);
-      break;
-    case A_EQ:
-    case A_NE:
-    case A_GT:
-    case A_LT:
-    case A_GE:
-    case A_LE:
-      compare(n);
-      break;
-    default:
-      error("unknown ast node");
-  }
-  fprintf(stdout, "\tpushq\t%%rax\n");
-}
-
 static void gen_stat(Node n) {
   switch (n->kind) {
     case A_BLOCK:
@@ -486,6 +492,10 @@ static void gen_stat(Node n) {
       return gen_expr(n);
   }
 }
+
+/********************************************************
+ *  generate global objs ( function, global variable )  *
+ ********************************************************/
 
 static void handle_lvars(Node n) {
   int offset = 0;

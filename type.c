@@ -1,5 +1,5 @@
+#include <stdlib.h>
 #include "inc.h"
-#include "stdlib.h"
 
 Type voidtype = &(struct type){TY_VOID, 0};
 Type chartype = &(struct type){TY_CHAR, 1};

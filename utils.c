@@ -1,4 +1,3 @@
-#include <execinfo.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +22,7 @@ void warn(char* msg, ...) {
 }
 
 /*****************************
- * string management         *
+ *     string management     *
  *****************************/
 static unsigned long hash(unsigned char* str, unsigned n) {
   unsigned long hash = 5381;

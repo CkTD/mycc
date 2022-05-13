@@ -1,8 +1,6 @@
-#include "ctype.h"
+#include <ctype.h>
+#include <stdlib.h>
 #include "inc.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
 
 const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            [TK_CLOSING_BRACES] = "}",
@@ -154,11 +152,4 @@ Token tokenize(char* p) {
   }
   last->next = mktoken(TK_EOI, NULL);
   return head.next;
-}
-
-void print_token(Token t) {
-  for (; t; t = t->next) {
-    fprintf(stderr, "%10s  \"%s", token_str[t->kind], t->name);
-    fprintf(stderr, "\"\n");
-  }
 }
