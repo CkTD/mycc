@@ -76,13 +76,13 @@ enum {
   TK_SUB,
   TK_SLASH,
   TK_AND,
-  TK_EQUAL,
   TK_EQUALEQUAL,
+  TK_EQUAL,
   TK_NOTEQUAL,
-  TK_GREATER,
   TK_GREATEREQUAL,
-  TK_LESS,
+  TK_GREATER,
   TK_LESSEQUAL,
+  TK_LESS,
   /***** keyword *****/
   TK_VOID,
   TK_CHAR,
@@ -101,7 +101,6 @@ enum {
   TK_CONTINUE,
   TK_RETURN,
   /***** other *****/
-  TK_EOI,
   TK_IDENT,
   TK_NUM,
   TK_STRING,
@@ -117,7 +116,7 @@ struct token {
 };
 
 extern const char* token_str[];
-Token tokenize(char* input);
+Token tokenize(const char* input);
 
 /*************
  *   parse   *

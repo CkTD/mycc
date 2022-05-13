@@ -349,7 +349,7 @@ static int check_next_top_level_item() {
 }
 
 static Node trans_unit() {
-  while (t->kind != TK_EOI) {
+  while (t) {
     check_next_top_level_item();
     if (is_function)  // function
       function();
