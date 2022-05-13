@@ -69,6 +69,7 @@ enum {
   TK_CLOSING_PARENTHESES,
   TK_OPENING_BRACKETS,
   TK_CLOSING_BRACKETS,
+  TK_ELLIPSIS,
   TK_COMMA,
   TK_SIMI,
   TK_STAR,
@@ -163,7 +164,8 @@ enum {
   A_CONVERSION,
   /***** other *****/
   A_NOOP,
-  A_FUNC_DEF,
+  A_VARARG,
+  A_FUNCTION,
   A_STRING_LITERAL,
 };
 
@@ -232,6 +234,7 @@ struct node {
   for (node = head->next; node != head; node = node->next)
 #define list_for_each_reverse(head, node) \
   for (node = head->prev; node != head; node = node->prev)
+#define list_empty(head) (head->next == head)
 
 Node parse(Token t);
 

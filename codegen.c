@@ -522,7 +522,7 @@ static void handle_lvars(Node n) {
 
 static void gen_func(Node globals) {
   for (Node n = globals; n; n = n->next) {
-    if (n->kind != A_FUNC_DEF)
+    if (n->kind != A_FUNCTION || !n->body)
       continue;
 
     current_func = n;

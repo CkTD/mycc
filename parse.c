@@ -343,6 +343,8 @@ static int is_function;
 static int check_next_top_level_item() {
   Token back = t;
   type_spec();
+  while (consume(TK_STAR))
+    ;
   is_function = consume(TK_IDENT) && consume(TK_OPENING_PARENTHESES);
   t = back;
   return is_function;
@@ -447,19 +449,52 @@ static Node declarator(Type ty) {
   return is_function ? mklvar(name, ty) : mkgvar(name, ty);
 }
 
+static int protos_compatitable(Node p1, Node p2) {
+  Node n1 = p1->next, n2 = p2->next;
+  for (; n1 != p1 && n2 != p2; n1 = n1->next, n2 = n2->next) {
+    if (n1->body->type != n2->body->type)
+      return 0;
+  }
+
+  return n1 == p1 && n2 == p2;
+}
+
 static Node function() {
-  locals = NULL;
-  Node n = mknode(A_FUNC_DEF);
-  n->type = type_spec();
-  n->name = expect(TK_IDENT)->name;
-  n->is_function = 1;
+  Type ty = type_spec();
+  while (consume(TK_STAR))
+    ty = ptr_type(ty);
+
+  const char* name = expect(TK_IDENT)->name;
 
   enter_scope();
-  n->protos = param_list();
-  n->next = globals;
-  globals = n;
-  n->body = comp_stat(1);
-  n->locals = locals;
+  locals = NULL;
+  Node protos = param_list();
+
+  Node n = find_global(name);
+  if (n) {  // the function has been declared
+    if (!n->is_function || n->body) {
+      error("redefine symbol %s", name);
+    } else {
+      if (n->type != ty || !protos_compatitable(protos, n->protos))
+        error("conflict types for %s", name);
+      n->protos = protos;
+    }
+  } else {
+    n = mknode(A_FUNCTION);
+    n->name = name;
+    n->type = ty;
+    n->protos = protos;
+    n->is_function = 1;
+    n->next = globals;
+    globals = n;
+  }
+
+  if (consume(TK_SIMI)) {  // function declaration whith out definition
+  } else {
+    n->body = comp_stat(1);
+    n->locals = locals;
+  }
+
   exit_scope();
 
   return NULL;
@@ -469,6 +504,14 @@ Node param_list() {
   Node head = mklist(NULL);
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
+    if (consume(TK_ELLIPSIS)) {
+      if (list_empty(head))
+        error("a named paramenter is required before...");
+      list_insert(head, mklist(mknode(A_VARARG)));
+      expect(TK_CLOSING_PARENTHESES);
+      break;
+    }
+
     Type ty = type_spec();
     while (consume(TK_STAR))
       ty = ptr_type(ty);
@@ -750,29 +793,33 @@ static Node func_call(const char* name) {
   Node n = mknode(A_FUNC_CALL);
   Node f = find_global(name);
 
-  if (!f)
-    error("function %s not defined", name);
-  if (!f->is_function)
-    error("%s is a variable, function expected", name);
+  if (f && !f->is_function)
+    error("called object \"%s\" is not a function", name);
 
   n->callee_name = name;
-  n->type = f->type;
+  n->type = f ? f->type : inttype;  //  implicit function declaration
 
   // function argument lists
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p6
   Node args = mklist(NULL);
-  Node cur_param = f->protos ? f->protos->next : NULL;
+  Node cur_param = (f && f->protos) ? f->protos->next : NULL;
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
     Node arg = expression();
-    if (f->protos) {
-      if (cur_param != f->protos) {
-        arg = mkcvs(cur_param->body->type, arg);
-        cur_param = cur_param->next;
-      } else
-        warn("too many arguments to function %s", f->name);
-    } else
+    if (!f || !f->protos) {  // function without prototype
       arg = mkcvs(integral_promote(arg->type), arg);
+    } else {  // function with porotype
+      if (cur_param == f->protos) {
+        warn("too many arguments to function %s", f->name);
+      } else {
+        if (cur_param->body->kind == A_VARARG) {
+          arg = mkcvs(integral_promote(arg->type), arg);
+        } else {
+          arg = mkcvs(cur_param->body->type, arg);
+          cur_param = cur_param->next;
+        }
+      }
+    }
 
     list_insert(args, mklist(arg));
     if (!match(TK_CLOSING_PARENTHESES))

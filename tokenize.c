@@ -11,6 +11,7 @@ const char* token_str[] = {
     [TK_CLOSING_PARENTHESES] = ")",
     [TK_OPENING_BRACKETS] = "[",
     [TK_CLOSING_BRACKETS] = "]",
+    [TK_ELLIPSIS] = "...",
     [TK_COMMA] = ",",
     [TK_SIMI] = ";",
     [TK_STAR] = "*",
