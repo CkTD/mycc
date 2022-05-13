@@ -101,9 +101,10 @@ enum {
   TK_CONTINUE,
   TK_RETURN,
   /***** other *****/
+  TK_EOI,
   TK_IDENT,
   TK_NUM,
-  TK_EOI,
+  TK_STRING,
 };
 
 typedef struct token* Token;
@@ -164,6 +165,7 @@ enum {
   /***** other *****/
   A_NOOP,
   A_FUNC_DEF,
+  A_STRING_LITERAL,
 };
 
 struct node {
@@ -172,6 +174,7 @@ struct node {
   // A_FUNCDEF(return type)
   Type type;
   // function or variable name
+  // string literal label name
   const char* name;
 
   // linked in compound-statement's body list(statement)
@@ -200,6 +203,9 @@ struct node {
 
   // A_NUM
   int intvalue;
+
+  // A_STRING_LITERAL
+  const char* string_value;
 
   // A_VAR
   Node scope_next;  // linked in scope(for local var)

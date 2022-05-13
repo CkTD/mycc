@@ -41,7 +41,7 @@ static const char* arg_regs[][6] = {
 static int label_id = 0;
 static const char* new_label() {
   char buf[32];
-  sprintf(buf, "L%d", label_id++);
+  sprintf(buf, ".L%d", label_id++);
   return string(buf);
 }
 
@@ -146,6 +146,9 @@ static void gen_iconst(Node n) {
 }
 
 static void gen_load(Type ty) {
+  if (is_array(ty))  // for array, the address is it's value
+    return;
+
   fprintf(stdout, "\tpopq\t%%rax\n");
   if (ty == chartype || ty == uchartype)
     fprintf(stdout, "\tmovb\t(%%rax), %%al\n");
@@ -220,7 +223,14 @@ static void gen_addr(Node n) {
     fprintf(stdout, "\tpushq\t%%rax\n");
     return;
   }
-  error("not a lvalue");
+
+  if (n->kind == A_STRING_LITERAL) {
+    fprintf(stdout, "\tleaq\t%s(%%rip), %%rax\n", n->name);
+    fprintf(stdout, "\tpushq\t%%rax\n");
+    return;
+  }
+
+  error("generate address for unknown kind");
 }
 
 static void gen_funccall(Node n) {
@@ -244,16 +254,16 @@ static void gen_funccall(Node n) {
   fprintf(stdout, "\tmovq\t%%rsp, %%rax\n");
   fprintf(stdout, "\tandq\t$0xf, %%rax\n");
   fprintf(stdout, "\tcmp\t$0, %%rax\n");
-  fprintf(stdout, "\tjnz\tL.asc.%d\n", l);
+  fprintf(stdout, "\tjnz\t.L.asc.%d\n", l);
   fprintf(stdout, "\tmovq\t$0, %%rax\n");
   fprintf(stdout, "\tcall\t%s\n", n->callee_name);
-  fprintf(stdout, "\tjmp\tL.asc.end.%d\n", l);
-  fprintf(stdout, "L.asc.%d:\n", l);
+  fprintf(stdout, "\tjmp\t.L.asc.end.%d\n", l);
+  fprintf(stdout, ".L.asc.%d:\n", l);
   fprintf(stdout, "\tsubq\t$8, %%rsp\n");
   fprintf(stdout, "\tmovq\t$0, %%rax\n");
   fprintf(stdout, "\tcall\t%s\n", n->callee_name);
   fprintf(stdout, "\taddq\t$8, %%rsp\n");
-  fprintf(stdout, "L.asc.end.%d:\n", l);
+  fprintf(stdout, ".L.asc.end.%d:\n", l);
   fprintf(stdout, "\tpushq\t%%rax\n");
 
   fprintf(stdout, "// ---- call function \"%s\"\n", n->callee_name);
@@ -278,11 +288,20 @@ static void gen_expr(Node n) {
     case A_NUM:
       gen_iconst(n);
       return;
+    case A_STRING_LITERAL:
+      gen_addr(n);
+      return;
     case A_VAR:
     case A_ARRAY_SUBSCRIPTING:
       gen_addr(n);
-      if (!is_array(n->type))
-        gen_load(n->type);
+      gen_load(n->type);
+      return;
+    case A_DEFERENCE:
+      gen_expr(n->left);
+      gen_load(deref_type(n->left->type));
+      return;
+    case A_ADDRESS_OF:
+      gen_addr(n->left);
       return;
     case A_ASSIGN:
       fprintf(stdout, "\t// assignment\n");
@@ -295,14 +314,6 @@ static void gen_expr(Node n) {
       return;
     case A_CONVERSION:
       gen_conversion(n);
-      return;
-    case A_DEFERENCE:
-      gen_addr(n->left);
-      gen_load(n->left->type);
-      gen_load(deref_type(n->left->type));
-      return;
-    case A_ADDRESS_OF:
-      gen_addr(n->left);
       return;
   }
 
@@ -463,7 +474,7 @@ static void gen_return(Node n) {
     gen_expr(n->body);
     fprintf(stdout, "\tpopq\t%%rax\n");
   }
-  fprintf(stdout, "\tjmp\tL.return.%s\n", current_func->name);
+  fprintf(stdout, "\tjmp\t.L.return.%s\n", current_func->name);
 }
 
 static void gen_stat(Node n) {
@@ -547,7 +558,7 @@ static void gen_func(Node globals) {
     gen_stat(n->body);
 
     // Epilogue
-    fprintf(stdout, "L.return.%s:\n", n->name);
+    fprintf(stdout, ".L.return.%s:\n", n->name);
     fprintf(stdout, "\tmovq\t%%rbp, %%rsp\n");
     fprintf(stdout, "\tpopq\t%%rbp\n");
     fprintf(stdout, "\tret\n");
@@ -570,25 +581,43 @@ static void gen_print() {
 }
 
 static void gen_data(Node globals) {
-  fprintf(stdout, "\t.bss\n");
+  int n_rodata = 0, n_data = 0, n_bss = 0;
+
+  for (Node n = globals; n; n = n->next) {
+    if (n->kind == A_STRING_LITERAL) {
+      if (n_rodata++ == 0)
+        fprintf(stdout, "\t.section .rodata\n");
+      n->name = new_label();
+      fprintf(stdout, "%s:\n", n->name);
+      fprintf(stdout, "\t.string\t\"%s\"\n", n->string_value);
+    }
+  }
+
   for (Node n = globals; n; n = n->next) {
     if (n->kind == A_VAR && !n->init_value) {
+      if (n_bss++ == 0)
+        fprintf(stdout, "\t.bss\n");
       fprintf(stdout, "\t.global %s\n", n->name);
       fprintf(stdout, "%s:\n", n->name);
       fprintf(stdout, "\t.zero %d\n", n->type->size);
     }
   }
 
-  fprintf(stdout, "\t.data\n");
   for (Node n = globals; n; n = n->next) {
     if (n->kind == A_VAR && n->init_value) {
+      if (n_data++ == 0)
+        fprintf(stdout, "\t.data\n");
       fprintf(stdout, "\t.global %s\n", n->name);
       fprintf(stdout, "%s:\n", n->name);
-      if (n->type->size == 1)
-        fprintf(stdout, "\t.byte %d\n", n->init_value->intvalue);
-      else
-        fprintf(stdout, "\t.%dbyte %d\n", n->type->size,
-                n->init_value->intvalue);
+      if (n->init_value->kind == A_NUM) {
+        if (n->type->size == 1)
+          fprintf(stdout, "\t.byte\t%d\n", n->init_value->intvalue);
+        else
+          fprintf(stdout, "\t.%dbyte\t%d\n", n->type->size,
+                  n->init_value->intvalue);
+      } else if (n->init_value->kind == A_STRING_LITERAL) {
+        fprintf(stdout, "\t.8byte\t%s\n", n->init_value->name);
+      }
     }
   }
 }

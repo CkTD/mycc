@@ -60,7 +60,7 @@
         - [=] integral constant
         - [ ] floating constant
         - [ ] character constant
-    - [ ] string literials
+    - [x] string literials
 - [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
 - [ ] [declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [x] init list

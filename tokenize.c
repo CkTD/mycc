@@ -42,7 +42,8 @@ const char* token_str[] = {[TK_OPENING_BRACES] = "{",
                            //
                            [TK_EOI] = "eoi",
                            [TK_IDENT] = "identifier",
-                           [TK_NUM] = "number"};
+                           [TK_NUM] = "number",
+                           [TK_STRING] = "string"};
 
 Token mktoken(int kind, const char* name) {
   Token t = malloc(sizeof(struct token));
@@ -129,6 +130,16 @@ Token tokenize(char* p) {
       p++;
     } else if (*p == '&') {
       n = mktoken(TK_AND, stringn(p, 1));
+      p++;
+    }
+    // string literal
+    else if (*p == '"') {
+      char* b = ++p;
+      while (*p != '"' && *p != 0)
+        p++;
+      if (*p == 0)
+        error("missing terminating \" character");
+      n = mktoken(TK_STRING, stringn(b, p - b));
       p++;
     }
     // keywords or  identifer

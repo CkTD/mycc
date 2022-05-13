@@ -269,6 +269,15 @@ static Node mkgvar(const char* name, Type ty) {
   return n;
 }
 
+static Node mkstrlit(const char* str) {
+  Node n = mknode(A_STRING_LITERAL);
+  n->string_value = str;
+  n->next = globals;
+  n->type = ptr_type(chartype);
+  globals = n;
+  return n;
+}
+
 /*****************************
  * recursive parse procedure *
  *****************************/
@@ -399,8 +408,10 @@ static Node init_declarator(Type ty) {
       error("not implemented: initialize array");
     if (is_function)
       return mkbinary(A_ASSIGN, n, e);
-    if (e->kind != A_NUM)
-      error("initialize global value should be integer constant");
+    if (e->kind != A_NUM && e->kind != A_STRING_LITERAL)
+      error(
+          "global variable can only be initializd by integer constant or "
+          "string literal");
     n->init_value = e;
     return NULL;
   }
@@ -702,6 +713,11 @@ static Node primary() {
     return n;
   }
 
+  // string literal
+  if ((tok = consume(TK_STRING))) {
+    return mkstrlit(tok->name);
+  }
+
   if ((tok = consume(TK_IDENT))) {
     // function call
     if (match(TK_OPENING_PARENTHESES))
@@ -709,7 +725,7 @@ static Node primary() {
 
     Node v = find_var(tok->name);
     if (!v)
-      error("undefined variable");
+      error("undefined variable %s", tok->name);
 
     // array subscripting
     if (match(TK_OPENING_BRACKETS))
