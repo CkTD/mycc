@@ -70,7 +70,7 @@
 - [ ] [declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [x] init list
 - [ ] Others
-    - [ ] remove print statement by calling library function "printf"
-    - [ ] for test, compile the source code with gcc, use the output of gcc as target output
+    - [x] remove print statement by calling library function "printf"
+    - [x] for test, compile the source code with gcc, use the output of gcc as target output
     - [ ] for debug: add corrsponding source line in output file 
     - [ ] add source location in error message

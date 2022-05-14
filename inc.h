@@ -92,7 +92,6 @@ enum {
   TK_INT,
   TK_SHORT,
   TK_LONG,
-  TK_PRINT,
   TK_IF,
   TK_ELSE,
   TK_WHILE,
@@ -157,7 +156,6 @@ enum {
   A_BREAK,
   A_CONTINUE,
   A_RETURN,
-  A_PRINT,
   /***** auxiliary *****/
   A_DLIST,
   A_BLOCK,
@@ -236,6 +234,7 @@ struct node {
 #define list_for_each_reverse(head, node) \
   for (node = head->prev; node != head; node = node->prev)
 #define list_empty(head) (head->next == head)
+int list_length(Node head);
 
 Node parse(Token t);
 

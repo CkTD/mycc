@@ -1,8 +1,0 @@
-int acc(int i) {
-    if(i == 1) return 1;
-    return i + acc(i-1);
-}
-
-void main() {
-    print acc(5);
-}

@@ -1,9 +1,0 @@
-char *gc = "a string literal";
-void main() {
-    char *c = "abcdefg";
-    int z = c[3];
-    print z;
-    c = gc;
-    z = *(gc+7);
-    print z;
-}

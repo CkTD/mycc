@@ -1,8 +1,0 @@
-void main() {
-    int z = func(3);
-    print z;
-}
-
-int func(int x) {
-    return x + 2;
-}

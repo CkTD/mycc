@@ -1,7 +1,0 @@
-void main() {
-    char a;
-    a = 13;
-    int b;
-    b = a;
-    print b;
-}

@@ -236,18 +236,13 @@ static void gen_addr(Node n) {
 static void gen_funccall(Node n) {
   fprintf(stdout, "// call function \"%s\"\n", n->callee_name);
   Node node;
-  int nargs = 0;
-  list_for_each(n->args, node) {
-    gen_expr(node->body);
-    fprintf(stdout, "\tpopq\t%%%s\n", arg_regs[8][nargs]);
-    if (++nargs >= 6 || node->next == n->args)
-      break;  // after break, node point to the last register args
-  }
-  Node last_regarg = node;
-  list_for_each_reverse(n->args, node) {
-    if (node == last_regarg)
-      break;
-    gen_expr(node->body);
+
+  list_for_each_reverse(n->args, node) gen_expr(node->body);
+  int nregargs = list_length(n->args);
+  if (nregargs > 6)
+    nregargs = 6;
+  for (int i = 0; i < nregargs; i++) {
+    fprintf(stdout, "\tpopq\t%%%s\n", arg_regs[8][i]);
   }
 
   int l = label_id++;
@@ -565,21 +560,6 @@ static void gen_func(Node globals) {
   }
 }
 
-// generate the print function: void print(int value);
-static void gen_print() {
-  fprintf(stdout, "\t.data\n");
-  fprintf(stdout, "format: .asciz \"%%d\\n\"\n");
-  fprintf(stdout, "\t.text\n");
-  fprintf(stdout, "print: \n");
-  fprintf(stdout, "\tmovq\t%%rdi, %%rsi\n");
-  fprintf(stdout, "\tleaq\tformat(%%rip), %%rdi\n");
-  fprintf(stdout, "\tmovq\t$0, %%rax\n");
-  fprintf(stdout, "\tpushq\t%%rbx\n");
-  fprintf(stdout, "\tcall\tprintf\n");
-  fprintf(stdout, "\tpopq\t%%rbx\n");
-  fprintf(stdout, "\tret\n");
-}
-
 static void gen_data(Node globals) {
   int n_rodata = 0, n_data = 0, n_bss = 0;
 
@@ -624,6 +604,5 @@ static void gen_data(Node globals) {
 
 void codegen(Node globals) {
   gen_data(globals);
-  gen_print();
   gen_func(globals);
 }

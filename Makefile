@@ -17,5 +17,5 @@ clean:
 	rm -rf mycc $(OBJS) $(DEPS)
 
 test: mycc
-	@./test.sh 2>/dev/null
+	@./test.sh
 	@rm temp.*

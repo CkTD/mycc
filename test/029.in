@@ -1,3 +1,0 @@
-void main()
-{for(;;){break;}print 1;
-}

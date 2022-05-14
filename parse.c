@@ -184,6 +184,13 @@ static Node list_insert(Node head, Node node) {
   return head;
 }
 
+int list_length(Node head) {
+  int l = 0;
+  for (Node n = head->next; n != head; n = n->next)
+    l++;
+  return l;
+}
+
 /***********************
  * variables and scope *
  ***********************/
@@ -528,16 +535,6 @@ static Node statement(int reuse_scope) {
   // compound statement
   if (match(TK_OPENING_BRACES)) {
     return comp_stat(reuse_scope);
-  }
-
-  // print statement
-  if (consume(TK_PRINT)) {
-    Node n = mknode(A_FUNC_CALL);
-    n->args = list_insert(mklist(NULL), mklist(expression()));
-    n->callee_name = "print";
-    n->type = inttype;
-    expect(TK_SIMI);
-    return n;
   }
 
   // if statement

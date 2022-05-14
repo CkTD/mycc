@@ -1,7 +1,0 @@
-void main() {
-    int i;
-    int *pi;
-    i = 12;
-    pi = &i;
-    print *pi;
-}
