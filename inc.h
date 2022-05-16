@@ -76,6 +76,7 @@ enum {
   TK_SIMI,
   TK_COLON,
   TK_QUESTIONMARK,
+  TK_CARET,
   TK_STAR,
   TK_ADD,
   TK_SUB,
@@ -83,6 +84,7 @@ enum {
   TK_ANDAND,
   TK_BARBAR,
   TK_AND,
+  TK_BAR,
   TK_EQUALEQUAL,
   TK_EQUAL,
   TK_NOTEQUAL,
@@ -133,10 +135,16 @@ enum {
   // 16 right
   A_ASSIGN,
   A_TERNARY,
-  // 15 logical_or left
+  // 15 left
   A_L_OR,
-  // 14 logical_and left
+  // 14 left
   A_L_AND,
+  // 13 left
+  A_B_INCLUSIVEOR,
+  // 12 left
+  A_B_EXCLUSIVEOR,
+  // 11 left
+  A_B_AND,
   // 10 left
   A_EQ,
   A_NE,

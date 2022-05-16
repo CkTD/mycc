@@ -323,6 +323,21 @@ static void gen_ternary(Node n) {
   fprintf(stdout, "%s:\n", elabel);
 }
 
+static void gen_bitwise(Node n) {
+  const char* inst;
+  if (n->kind == A_B_AND)
+    inst = "and";
+  else if (n->kind == A_B_INCLUSIVEOR)
+    inst = "or";
+  else if (n->kind == A_B_EXCLUSIVEOR)
+    inst = "xor";
+  else
+    error("what bitwise operator");
+
+  fprintf(stdout, "\t%s%c\t%%%s, %%%s\n", inst, size_suffix[n->type->size],
+          regs[n->type->size][RDI], regs[n->type->size][RA]);
+}
+
 static void gen_expr(Node n) {
   switch (n->kind) {
     case A_NUM:
@@ -392,6 +407,11 @@ static void gen_expr(Node n) {
       break;
     case A_L_OR:
       gen_logical_or(n);
+      break;
+    case A_B_AND:
+    case A_B_EXCLUSIVEOR:
+    case A_B_INCLUSIVEOR:
+      gen_bitwise(n);
       break;
     default:
       error("unknown ast node");

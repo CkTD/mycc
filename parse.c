@@ -116,6 +116,7 @@ static Type usual_arithmetic_conversions(Node node) {
 // kind:
 //     A_ASSIGN
 //     A_L_OR, A_L_AND,
+//     A_B_INCLUSIVE, A_B_EXCLUSIVE, A_B_AND
 //     A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
 //     A_ADD, A_SUB
 //     A_MUL, A_DIV
@@ -139,6 +140,17 @@ static Node mkbinary(int kind, Node left, Node right) {
       return n;
     }
     error("invalid operands");
+  }
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.10
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.11
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.12
+  if (kind == A_B_AND || kind == A_B_INCLUSIVEOR || kind == A_B_EXCLUSIVEOR) {
+    if (is_integer(n->left->type) && is_integer(n->right->type)) {
+      n->type = usual_arithmetic_conversions(n);
+      return n;
+    }
+    error("invalid operand");
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.9
@@ -373,7 +385,10 @@ static Node mkstrlit(const char* str) {
 // assign_expr:    conditional_expr { '=' assign_expr }
 // conditional_expr: logical_or_expr { '?' expression : conditional_expr }?
 // logical_or_expr:  logical_and_expr { '||' logical_and_expr }*
-// logical_and_expr: equality_expr { '&&' equality_expr }*
+// logical_and_expr: equality_expr { '&&' inclusive_or_expr }*
+// inclusive_or_expr:exclusive_or_expr { '|' exclusive_or_expr }*
+// exclusive_or_expr:bitwise_and_expr { '^' bitwise_and_expr }*
+// bitwise_and_expr: equality_expr { '&' equality_expr}*
 // equality_expr:  relational_expr { '==' | '!='  relational_expr }*
 // relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}*
 // sum_expr        :mul_expr { '+'|'-' mul_exp }*
@@ -403,6 +418,9 @@ static Node assign_expr();
 static Node conditional_expr();
 static Node logical_or_expr();
 static Node logical_and_expr();
+static Node inclusive_or_expr();
+static Node exclusive_or_expr();
+static Node bitwise_and_expr();
 static Node eq_expr();
 static Node rel_expr();
 static Node sum_expr();
@@ -770,10 +788,40 @@ static Node logical_or_expr() {
 }
 
 static Node logical_and_expr() {
-  Node n = eq_expr();
+  Node n = inclusive_or_expr();
   for (;;) {
     if (consume(TK_ANDAND))
-      n = mkbinary(A_L_AND, n, eq_expr());
+      n = mkbinary(A_L_AND, n, inclusive_or_expr());
+    else
+      return n;
+  }
+}
+
+static Node inclusive_or_expr() {
+  Node n = exclusive_or_expr();
+  for (;;) {
+    if (consume(TK_BAR))
+      n = mkbinary(A_B_INCLUSIVEOR, n, exclusive_or_expr());
+    else
+      return n;
+  }
+}
+
+static Node exclusive_or_expr() {
+  Node n = bitwise_and_expr();
+  for (;;) {
+    if (consume(TK_CARET))
+      n = mkbinary(A_B_EXCLUSIVEOR, n, bitwise_and_expr());
+    else
+      return n;
+  }
+}
+
+static Node bitwise_and_expr() {
+  Node n = eq_expr();
+  for (;;) {
+    if (consume(TK_AND))
+      n = mkbinary(A_B_AND, n, eq_expr());
     else
       return n;
   }
