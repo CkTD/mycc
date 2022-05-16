@@ -308,6 +308,21 @@ static void gen_logical_or(Node n) {
   fprintf(stdout, "%s:\n", elabel);
 }
 
+static void gen_ternary(Node n) {
+  const char* rlabel = new_label();
+  const char* elabel = new_label();
+  gen_expr(n->cond);
+  fprintf(stdout, "\tpopq\t%%rax\n");
+  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix[n->cond->type->size],
+          regs[n->cond->type->size][RA]);
+  fprintf(stdout, "\tje\t%s\n", rlabel);
+  gen_expr(n->left);
+  fprintf(stdout, "\tjmp\t%s\n", elabel);
+  fprintf(stdout, "%s:\n", rlabel);
+  gen_expr(n->right);
+  fprintf(stdout, "%s:\n", elabel);
+}
+
 static void gen_expr(Node n) {
   switch (n->kind) {
     case A_NUM:
@@ -339,6 +354,9 @@ static void gen_expr(Node n) {
       return;
     case A_CONVERSION:
       gen_conversion(n);
+      return;
+    case A_TERNARY:
+      gen_ternary(n);
       return;
   }
 

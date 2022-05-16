@@ -200,6 +200,30 @@ static Node mkbinary(int kind, Node left, Node right) {
   return n;
 }
 
+static Node mkternary(Node cond, Node left, Node right) {
+  Node n = mknode(A_TERNARY);
+  n->cond = cond;
+  n->left = left;
+  n->right = right;
+
+  if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
+    n->type = usual_arithmetic_conversions(n);
+    return n;
+  }
+
+  if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
+    if (!is_ptr_compatiable(n->left->type, n->right->type))
+      error("pointer type mismatch");
+    n->type = n->left->type;
+    if (is_array(n->type))
+      n->type = array_to_ptr(n->type);
+    return n;
+  }
+
+  error("invalid operand");
+  return NULL;
+}
+
 /**********************
  * double linked list *
  **********************/
@@ -347,7 +371,7 @@ static Node mkstrlit(const char* str) {
 // expr_stat:      {expression}? ;
 // expression:     assign_expr
 // assign_expr:    conditional_expr { '=' assign_expr }
-// conditional_expr: logical_or_expr
+// conditional_expr: logical_or_expr { '?' expression : conditional_expr }?
 // logical_or_expr:  logical_and_expr { '||' logical_and_expr }*
 // logical_and_expr: equality_expr { '&&' equality_expr }*
 // equality_expr:  relational_expr { '==' | '!='  relational_expr }*
@@ -726,7 +750,13 @@ static Node assign_expr() {
 }
 
 static Node conditional_expr() {
-  return logical_or_expr();
+  Node n = logical_or_expr();
+  if (consume(TK_QUESTIONMARK)) {
+    Node e = expression();
+    expect(TK_COLON);
+    n = mkternary(n, e, conditional_expr());
+  }
+  return n;
 }
 
 static Node logical_or_expr() {

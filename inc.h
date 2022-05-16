@@ -74,6 +74,8 @@ enum {
   TK_ELLIPSIS,
   TK_COMMA,
   TK_SIMI,
+  TK_COLON,
+  TK_QUESTIONMARK,
   TK_STAR,
   TK_ADD,
   TK_SUB,
@@ -130,6 +132,7 @@ enum {
   /***** expressions *****/
   // 16 right
   A_ASSIGN,
+  A_TERNARY,
   // 15 logical_or left
   A_L_OR,
   // 14 logical_and left
