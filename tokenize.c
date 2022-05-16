@@ -18,6 +18,8 @@ const char* token_str[] = {
     [TK_ADD] = "+",
     [TK_SUB] = "-",
     [TK_SLASH] = "/",
+    [TK_ANDAND] = "&&",
+    [TK_BARBAR] = "||",
     [TK_AND] = "&",
     [TK_EQUALEQUAL] = "==",
     [TK_EQUAL] = "=",

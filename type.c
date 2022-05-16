@@ -87,13 +87,21 @@ int is_integer(Type t) {
   return is_signed(t) || is_unsigned(t);
 }
 
+int is_arithmetic(Type t) {
+  return is_integer(t);
+}
+
+int is_scalar(Type t) {
+  return is_arithmetic(t) || is_ptr(t);
+}
+
 Type integral_promote(Type t) {
   if (t->size < inttype->size)
     return inttype;
   return t;
 }
 
-Type usual_arithmetic_conversion(Type t1, Type t2) {
+Type usual_arithmetic_type(Type t1, Type t2) {
   t1 = integral_promote(t1);
   t2 = integral_promote(t2);
   if (t1 == t2)

@@ -14,7 +14,7 @@ function failed {
 function test {
     file=$1
     prog="$(cat $file)"
-    
+
     # expected output
     gcc -std=c99 -Wno-implicit-function-declaration -Wno-builtin-declaration-mismatch -o temp.out $file 2>/dev/null
     if [[ $? -ne 0 ]]; then
@@ -27,7 +27,7 @@ function test {
         failed "$file" "non-zero exit code(gcc)"
         return
     fi
-    
+
     # compile input
     ./mycc "${prog}" >temp.S 2>/dev/null
     if [[ $? -ne 0 ]]; then
@@ -61,4 +61,3 @@ for file in $(ls test/*.c | sort -n); do
     echo -ne "\r\033[KTest Summary: ${passed} PASSED, ${failed} FAILED"
 done
 echo -ne "\n"
-

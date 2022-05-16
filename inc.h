@@ -55,8 +55,10 @@ int is_ptr_compatiable(Type a, Type b);
 int is_signed(Type t);
 int is_unsigned(Type t);
 int is_integer(Type t);
+int is_arithmetic(Type t);
+int is_scalar(Type t);
 Type integral_promote(Type t);
-Type usual_arithmetic_conversion(Type t1, Type t2);
+Type usual_arithmetic_type(Type t1, Type t2);
 
 /*************
  * tokenize  *
@@ -76,6 +78,8 @@ enum {
   TK_ADD,
   TK_SUB,
   TK_SLASH,
+  TK_ANDAND,
+  TK_BARBAR,
   TK_AND,
   TK_EQUALEQUAL,
   TK_EQUAL,
@@ -126,6 +130,10 @@ enum {
   /***** expressions *****/
   // 16 right
   A_ASSIGN,
+  // 15 logical_or left
+  A_L_OR,
+  // 14 logical_and left
+  A_L_AND,
   // 10 left
   A_EQ,
   A_NE,

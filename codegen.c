@@ -3,39 +3,37 @@
 
 #include "inc.h"
 
-// X86_64 Registers
-//
-// 64-bit | 32-bits | 16-bits | 8-bits | Conventional use
-// ==============================================================
-// rax   | eax      | ax      | al     | Return value, callee-owned
-// rdi   | edi      | di      | dil    | 1-6 argument, callee-owned
-// rsi   | esi      | si      | sil
-// rdx   | edx      | dx      | dl
-// rcx   | ecx      | cx      | cl
-// r8    | r8d      | r8w     | r8b
-// r9    | r9d      | r9w     | r9b
-// r10   | r10d     | r10w    | r10b   | Scratch/temporary, callee-owned
-// r11   | r11d     | r11w    | r11b
-// rsp   | esp      | sp      | spl    | Stack pointer, caller-owned
-// rbx   | ebx      | bx      | bl     | Local Variable, caller-owned
-// rbp   | ebp      | bp      | bpl
-// r12   | r12d     | r12w    | r12b
-// r13   | r13d     | r13w    | r13b
-// r14   | r14d     | r14w    | r14b
-// r15   | r15d     | r15w    | r15b
-//
-// rip
-// eflags
-
 // register name maps
+enum {
+  RDI,  // 1-6 argument, callee-owned
+  RSI,
+  RDX,
+  RCX,
+  R8,
+  R9,
+  RA,   // Return value, callee-owned
+  R10,  // Scratch/temporary, callee-owned
+  R11,
+  RSP,  // Stack pointer, caller-owned
+  RBX,  // Local Variable, caller-owned
+  RBP,
+  R12,
+  R13,
+  R14,
+  R15,
+};
+
+static const char* regs[][16] = {
+    [1] = {"dil", "sil", "dl", "cl", "r8b", "r9b", "al", "r10b", "r11b", "spl",
+           "bl", "bpl", "r12b", "r13b", "r14b", "r15b"},
+    [2] = {"di", "si", "dx", "cx", "r8w", "r9w", "ax", "r10w", "r11w", "sp",
+           "bx", "bp", "r12w", "r13w", "r14w", "r15w"},
+    [4] = {"edi", "esi", "edx", "ecx", "r8d", "r9d", "eax", "r10d", "r11d",
+           "esp", "ebx", "ebp", "r12d", "r13d", "r14d", "r15d"},
+    [8] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "r10", "r11", "rsp",
+           "rbx", "rbp", "r12", "r13", "r14", "r15"}};
+
 static const char size_suffix[] = {[1] = 'b', [2] = 'w', [4] = 'l', [8] = 'q'};
-static const char* a_regs[] =
-    {[1] = "al", [2] = "ax", [4] = "eax", [8] = "rax"};
-static const char* arg_regs[][6] = {
-    [1] = {"dil", "sil", "dl", "cl", "r8b", "r9b"},
-    [2] = {"di", "si", "dx", "cx", "r8w", "r9w"},
-    [4] = {"edi", "esi", "edx", "ecx", "r8d", "r9d"},
-    [8] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"}};
 
 // unique label
 static int label_id = 0;
@@ -242,7 +240,7 @@ static void gen_funccall(Node n) {
   if (nregargs > 6)
     nregargs = 6;
   for (int i = 0; i < nregargs; i++) {
-    fprintf(stdout, "\tpopq\t%%%s\n", arg_regs[8][i]);
+    fprintf(stdout, "\tpopq\t%%%s\n", regs[8][i]);
   }
 
   int l = label_id++;
@@ -273,9 +271,41 @@ static void gen_conversion(Node n) {
     fprintf(stdout, "\tmov%c%c%c\t%%%s, %%%s\n",
             is_signed(n->body->type) ? 's' : 'z',
             size_suffix[n->body->type->size], size_suffix[n->type->size],
-            a_regs[n->body->type->size], a_regs[n->type->size]);
+            regs[n->body->type->size][RA], regs[n->type->size][RA]);
     fprintf(stdout, "\tpushq\t%%rax\n");
   }
+}
+
+static void gen_logical_and(Node n) {
+  const char* flabel = new_label();
+  const char* elabel = new_label();
+  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix[n->left->type->size],
+          regs[n->left->type->size][RA]);
+  fprintf(stdout, "\tje\t%s\n", flabel);
+  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix[n->right->type->size],
+          regs[n->right->type->size][RDI]);
+  fprintf(stdout, "\tje\t%s\n", flabel);
+  fprintf(stdout, "\tmovl\t$1, %%eax\n");
+  fprintf(stdout, "\tjmp\t%s\n", elabel);
+  fprintf(stdout, "%s:\n", flabel);
+  fprintf(stdout, "\tmovl\t$0, %%eax\n");
+  fprintf(stdout, "%s:\n", elabel);
+}
+
+static void gen_logical_or(Node n) {
+  const char* tlabel = new_label();
+  const char* elabel = new_label();
+  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix[n->left->type->size],
+          regs[n->left->type->size][RA]);
+  fprintf(stdout, "\tjne\t%s\n", tlabel);
+  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix[n->right->type->size],
+          regs[n->right->type->size][RDI]);
+  fprintf(stdout, "\tjne\t%s\n", tlabel);
+  fprintf(stdout, "\tmovl\t$0, %%eax\n");
+  fprintf(stdout, "\tjmp\t%s\n", elabel);
+  fprintf(stdout, "%s:\n", tlabel);
+  fprintf(stdout, "\tmovl\t$1, %%eax\n");
+  fprintf(stdout, "%s:\n", elabel);
 }
 
 static void gen_expr(Node n) {
@@ -338,6 +368,12 @@ static void gen_expr(Node n) {
     case A_GE:
     case A_LE:
       compare(n);
+      break;
+    case A_L_AND:
+      gen_logical_and(n);
+      break;
+    case A_L_OR:
+      gen_logical_or(n);
       break;
     default:
       error("unknown ast node");
@@ -539,12 +575,11 @@ static void gen_func(Node globals) {
       Node v = node->body;
       if (i < 6)
         fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
-                size_suffix[v->type->size], arg_regs[v->type->size][i],
-                v->offset);
+                size_suffix[v->type->size], regs[v->type->size][i], v->offset);
       else {
         fprintf(stdout, "\tmovq\t%d(%%rbp), %%rax\n", 8 * (i - 6) + 16);
         fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
-                size_suffix[v->type->size], a_regs[v->type->size], v->offset);
+                size_suffix[v->type->size], regs[v->type->size][RA], v->offset);
       }
       i++;
     }

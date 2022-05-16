@@ -66,6 +66,8 @@ static Node mkaux(int kind, Node body) {
   return n;
 }
 
+// kind:
+//     A_ADDRESS_OF, A_DEREFERENCE
 static Node mkuniary(int kind, Node left) {
   Node n = mknode(kind);
   n->left = left;
@@ -103,64 +105,98 @@ static Node mkcvs(Type t, Node body) {
   return n;
 }
 
+// usual arithmetic conversions for binary expressions
+static Type usual_arithmetic_conversions(Node node) {
+  Type t = usual_arithmetic_type(node->left->type, node->right->type);
+  node->left = mkcvs(t, node->left);
+  node->right = mkcvs(t, node->right);
+  return t;
+}
+
+// kind:
+//     A_ASSIGN
+//     A_L_OR, A_L_AND,
+//     A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
+//     A_ADD, A_SUB
+//     A_MUL, A_DIV
 static Node mkbinary(int kind, Node left, Node right) {
   Node n = mknode(kind);
   n->left = left;
   n->right = right;
 
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.16
   if (kind == A_ASSIGN) {
     n->right = mkcvs(n->left->type, n->right);
     n->type = n->left->type;
     return n;
   }
 
-  if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
-    if (!is_ptr_compatiable(n->left->type, n->right->type))
-      error("invalid operands to binary, incompatiable pointer");
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.14
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.13
+  if (kind == A_L_OR || kind == A_L_AND) {
+    if (is_scalar(n->left->type) && is_scalar(n->right->type)) {
+      n->type = inttype;
+      return n;
+    }
+    error("invalid operands");
+  }
 
-    if (kind == A_SUB) {
-      // http://port70.net/~nsz/c/c99/n1256.html#6.5.6p9
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.9
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.8
+  if (kind >= A_EQ && kind <= A_GE) {
+    if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
+      usual_arithmetic_conversions(n);
+      n->type = inttype;
+      return n;
+    }
+  }
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.6
+  if (kind == A_ADD) {
+    if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
+      n->type = usual_arithmetic_conversions(n);
+      return n;
+    }
+    if (is_integer(n->left->type) && is_ptr(n->right->type)) {
+      n->left = mkbinary(A_MUL, n->left, mkicons(n->right->type->base->size));
+      n->type = n->right->type;
+      return n;
+    }
+    if (is_ptr(n->left->type) && is_integer(n->right->type)) {
+      n->right = mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size));
+      n->type = n->left->type;
+      return n;
+    }
+    error("invalid operands to binary \"+\"");
+  }
+  if (kind == A_SUB) {
+    if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
+      n->type = usual_arithmetic_conversions(n);
+      return n;
+    }
+    if (is_ptr(n->left->type) && is_integer(n->right->type)) {
+      n->right = mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size));
+      n->type = n->left->type;
+      return n;
+    }
+    if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
+      if (!is_ptr_compatiable(n->left->type, n->right->type))
+        error("invalid operands to binary, incompatiable pointer");
       n->type = inttype;
       return mkbinary(A_DIV, n, mkicons(n->left->type->base->size));
     }
 
-    if (kind >= A_EQ && kind <= A_GE) {
-      // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p6
-      // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p5
-      n->type = inttype;
-      return n;
-    }
-
-    error("invalid operands to binary");
+    error("invalid operands to binary \"-\"");
   }
 
-  if (is_ptr(n->left->type) || is_ptr(n->right->type)) {
-    // http://port70.net/~nsz/c/c99/n1256.html#6.5.6p8
-    if (kind == A_ADD || kind == A_SUB) {
-      if (kind == A_SUB && !is_integer(n->right->type))
-        error("invalid operands to binary");
-      if (is_ptr(n->right->type)) {
-        Node temp = n->right;
-        n->right = n->left;
-        n->left = temp;
-      }
-      if (!is_integer(n->right->type))
-        error("invalid operands to binary");
-      n->right = mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size));
-      n->type = n->left->type;
-      if (is_array(n->type))
-        n->type = array_to_ptr(n->type);
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.5
+  if (kind == A_MUL || kind == A_DIV) {
+    if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
+      n->type = usual_arithmetic_conversions(n);
       return n;
     }
     error("invalid operands to binary");
   }
-
-  Type t = usual_arithmetic_conversion(n->left->type, n->right->type);
-  n->left = mkcvs(t, n->left);
-  n->right = mkcvs(t, n->right);
-  // http://port70.net/~nsz/c/c99/n1256.html#6.5.8p6
-  // http://port70.net/~nsz/c/c99/n1256.html#6.5.9p3
-  n->type = (kind >= A_EQ && kind <= A_GE) ? inttype : t;
   return n;
 }
 
@@ -310,11 +346,14 @@ static Node mkstrlit(const char* str) {
 // print_stat:     'print' expr;
 // expr_stat:      {expression}? ;
 // expression:     assign_expr
-// assign_expr:    equality_expr { '=' expression }
-// equality_expr:  relational_expr { '==' | '!='  relational_expr }
-// relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}
-// sum_expr        :mul_expr { '+'|'-' mul_exp }
-// mul_exp:        uniary_expr { '*'|'/' uniary_expr }
+// assign_expr:    conditional_expr { '=' assign_expr }
+// conditional_expr: logical_or_expr
+// logical_or_expr:  logical_and_expr { '||' logical_and_expr }*
+// logical_and_expr: equality_expr { '&&' equality_expr }*
+// equality_expr:  relational_expr { '==' | '!='  relational_expr }*
+// relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}*
+// sum_expr        :mul_expr { '+'|'-' mul_exp }*
+// mul_exp:        uniary_expr { '*'|'/' uniary_expr }*
 // uniary_expr:    { '*' | '&' }? primary
 // primary:        identifier { arg_list | array_subscripting }? |
 //                 number  | '('expression ')'
@@ -337,30 +376,32 @@ static Node for_stat();
 static Node expr_stat();
 static Node expression();
 static Node assign_expr();
-static Node uniary_expr();
+static Node conditional_expr();
+static Node logical_or_expr();
+static Node logical_and_expr();
 static Node eq_expr();
 static Node rel_expr();
 static Node sum_expr();
 static Node mul_expr();
 static Node primary();
+static Node uniary_expr();
 static Node func_call(const char* name);
 static Node array_subscripting(Node array);
 
-static int is_function;
+static Node current_func;
 static int check_next_top_level_item() {
   Token back = t;
   type_spec();
   while (consume(TK_STAR))
     ;
-  is_function = consume(TK_IDENT) && consume(TK_OPENING_PARENTHESES);
+  int is_function = consume(TK_IDENT) && consume(TK_OPENING_PARENTHESES);
   t = back;
   return is_function;
 }
 
 static Node trans_unit() {
   while (t) {
-    check_next_top_level_item();
-    if (is_function)  // function
+    if (check_next_top_level_item())  // function
       function();
     else  // global variable
       declaration();
@@ -415,7 +456,7 @@ static Node init_declarator(Type ty) {
     Node e = expression();
     if (is_ptr(ty))
       error("not implemented: initialize array");
-    if (is_function)
+    if (current_func)
       return mkbinary(A_ASSIGN, n, e);
     if (e->kind != A_NUM && e->kind != A_STRING_LITERAL)
       error(
@@ -453,7 +494,7 @@ static Node declarator(Type ty) {
   // array
   ty = array_postfix(ty);
 
-  return is_function ? mklvar(name, ty) : mkgvar(name, ty);
+  return current_func ? mklvar(name, ty) : mkgvar(name, ty);
 }
 
 static int protos_compatitable(Node p1, Node p2) {
@@ -498,8 +539,10 @@ static Node function() {
 
   if (consume(TK_SIMI)) {  // function declaration whith out definition
   } else {
+    current_func = n;
     n->body = comp_stat(1);
     n->locals = locals;
+    current_func = NULL;
   }
 
   exit_scope();
@@ -570,7 +613,7 @@ static Node statement(int reuse_scope) {
     Node n = mknode(A_RETURN);
     if (consume(TK_SIMI))
       return n;
-    n->body = mkcvs(globals->type, expression());
+    n->body = mkcvs(current_func->type, expression());
     expect(TK_SIMI);
     return n;
   }
@@ -669,7 +712,7 @@ static Node expression() {
 }
 
 static Node assign_expr() {
-  Node n = eq_expr();
+  Node n = conditional_expr();
   if (!match(TK_EQUAL)) {
     return n;
   }
@@ -679,7 +722,31 @@ static Node assign_expr() {
 
   expect(TK_EQUAL);
 
-  return mkbinary(A_ASSIGN, n, expression());
+  return mkbinary(A_ASSIGN, n, assign_expr());
+}
+
+static Node conditional_expr() {
+  return logical_or_expr();
+}
+
+static Node logical_or_expr() {
+  Node n = logical_and_expr();
+  for (;;) {
+    if (consume(TK_BARBAR))
+      n = mkbinary(A_L_OR, n, logical_and_expr());
+    else
+      return n;
+  }
+}
+
+static Node logical_and_expr() {
+  Node n = eq_expr();
+  for (;;) {
+    if (consume(TK_ANDAND))
+      n = mkbinary(A_L_AND, n, eq_expr());
+    else
+      return n;
+  }
 }
 
 static Node eq_expr() {

@@ -2,8 +2,9 @@
 
 ## C
 
-* [The syntax of C in Backus-Naur Form](https://cs.wmich.edu/~gupta/teaching/cs4850/sumII06/The%20syntax%20of%20C%20in%20Backus-Naur%20form.htm)
-* [C standards](https://stackoverflow.com/a/83763) , [C99](http://port70.net/%7Ensz/c/c99/n1256.html)
+* [C99 Gramer](https://slebok.github.io/zoo/c/c99/iso-9899-tc3/extracted/index.html#struct-declaration)
+* [C standards](https://stackoverflow.com/a/83763)
+* C99 [html](http://port70.net/%7Ensz/c/c99/n1256.html) [pdf](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1256.pdf)
 * [C operator precedence](https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence)
 * [Understand integer conversion rules(Integer Promotions, Integer Conversion Rank, Usual Arithmetic Conversions)](https://wiki.sei.cmu.edu/confluence/display/c/INT02-C.+Understand+integer+conversion+rules), [C99(6.3)](http://port70.net/~nsz/c/c99/n1256.html#6.3)
 * [Implicity prototype C99 vs C90](https://stackoverflow.com/a/437763)
