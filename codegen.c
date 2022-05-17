@@ -338,6 +338,24 @@ static void gen_bitwise(Node n) {
           regs[n->type->size][RDI], regs[n->type->size][RA]);
 }
 
+static void gen_shift(Node n) {
+  const char* inst;
+  if (n->kind == A_LEFT_SHIFT) {
+    if (is_signed(n->left->type))
+      inst = "sal";
+    else
+      inst = "shl";
+  } else {
+    if (is_signed(n->left->type))
+      inst = "sar";
+    else
+      inst = "shr";
+  }
+  fprintf(stdout, "\tmovq\t%%rdi, %%rcx\n");
+  fprintf(stdout, "\t%s%c\t%%cl, %%%s\n", inst,
+          size_suffix[n->left->type->size], regs[n->left->type->size][RA]);
+}
+
 static void gen_expr(Node n) {
   switch (n->kind) {
     case A_NUM:
@@ -412,6 +430,10 @@ static void gen_expr(Node n) {
     case A_B_EXCLUSIVEOR:
     case A_B_INCLUSIVEOR:
       gen_bitwise(n);
+      break;
+    case A_LEFT_SHIFT:
+    case A_RIGHT_SHIFT:
+      gen_shift(n);
       break;
     default:
       error("unknown ast node");

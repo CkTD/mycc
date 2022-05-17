@@ -118,6 +118,7 @@ static Type usual_arithmetic_conversions(Node node) {
 //     A_L_OR, A_L_AND,
 //     A_B_INCLUSIVE, A_B_EXCLUSIVE, A_B_AND
 //     A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
+//     A_LEFT_SHIFT, A_RIGHT_SHIFT
 //     A_ADD, A_SUB
 //     A_MUL, A_DIV
 static Node mkbinary(int kind, Node left, Node right) {
@@ -161,6 +162,17 @@ static Node mkbinary(int kind, Node left, Node right) {
       n->type = inttype;
       return n;
     }
+  }
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.7
+  if (kind == A_LEFT_SHIFT || kind == A_RIGHT_SHIFT) {
+    if (is_integer(n->left->type) && is_integer(n->right->type)) {
+      n->type = integral_promote(n->left->type);
+      n->left = mkcvs(n->type, n->left);
+      n->right = mkcvs(n->right->type, n->right);
+      return n;
+    }
+    error("invalid operand");
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.6
@@ -209,7 +221,9 @@ static Node mkbinary(int kind, Node left, Node right) {
     }
     error("invalid operands to binary");
   }
-  return n;
+
+  error("");
+  return NULL;
 }
 
 static Node mkternary(Node cond, Node left, Node right) {
@@ -390,7 +404,8 @@ static Node mkstrlit(const char* str) {
 // exclusive_or_expr:bitwise_and_expr { '^' bitwise_and_expr }*
 // bitwise_and_expr: equality_expr { '&' equality_expr}*
 // equality_expr:  relational_expr { '==' | '!='  relational_expr }*
-// relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' sum_expr}*
+// relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' shift_expr}*
+// shift_expr:     sum_expr { '<<' | '>>' sum_expr }*
 // sum_expr        :mul_expr { '+'|'-' mul_exp }*
 // mul_exp:        uniary_expr { '*'|'/' uniary_expr }*
 // uniary_expr:    { '*' | '&' }? primary
@@ -423,6 +438,7 @@ static Node exclusive_or_expr();
 static Node bitwise_and_expr();
 static Node eq_expr();
 static Node rel_expr();
+static Node shift_expr();
 static Node sum_expr();
 static Node mul_expr();
 static Node primary();
@@ -840,16 +856,28 @@ static Node eq_expr() {
 }
 
 static Node rel_expr() {
-  Node n = sum_expr();
+  Node n = shift_expr();
   for (;;) {
     if (consume(TK_GREATER))
-      n = mkbinary(A_GT, n, sum_expr());
+      n = mkbinary(A_GT, n, shift_expr());
     else if (consume(TK_LESS))
-      n = mkbinary(A_LT, n, sum_expr());
+      n = mkbinary(A_LT, n, shift_expr());
     else if (consume(TK_GREATEREQUAL))
-      n = mkbinary(A_GE, n, sum_expr());
+      n = mkbinary(A_GE, n, shift_expr());
     else if (consume(TK_LESSEQUAL))
-      n = mkbinary(A_LE, n, sum_expr());
+      n = mkbinary(A_LE, n, shift_expr());
+    else
+      return n;
+  }
+}
+
+static Node shift_expr() {
+  Node n = sum_expr();
+  for (;;) {
+    if (consume(TK_LEFT_SHIFT))
+      n = mkbinary(A_LEFT_SHIFT, n, sum_expr());
+    else if (consume(TK_RIGHT_SHIFT))
+      n = mkbinary(A_RIGHT_SHIFT, n, sum_expr());
     else
       return n;
   }

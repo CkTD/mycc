@@ -25,6 +25,8 @@ const char* token_str[] = {
     [TK_BARBAR] = "||",
     [TK_AND] = "&",
     [TK_BAR] = "|",
+    [TK_LEFT_SHIFT] = "<<",
+    [TK_RIGHT_SHIFT] = ">>",
     [TK_EQUALEQUAL] = "==",
     [TK_EQUAL] = "=",
     [TK_NOTEQUAL] = "!=",

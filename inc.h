@@ -85,6 +85,8 @@ enum {
   TK_BARBAR,
   TK_AND,
   TK_BAR,
+  TK_LEFT_SHIFT,
+  TK_RIGHT_SHIFT,
   TK_EQUALEQUAL,
   TK_EQUAL,
   TK_NOTEQUAL,
@@ -153,6 +155,9 @@ enum {
   A_GT,
   A_LE,
   A_GE,
+  // 7 left
+  A_LEFT_SHIFT,
+  A_RIGHT_SHIFT,
   // 6 left
   A_ADD,
   A_SUB,
