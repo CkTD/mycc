@@ -833,12 +833,30 @@ static Node comma_expr() {
 
 static Node assign_expr() {
   Node n = conditional_expr();
-  if (!match(TK_EQUAL)) {
-    return n;
+  for (;;) {
+    if (consume(TK_EQUAL))
+      n = mkbinary(A_ASSIGN, n, assign_expr());
+    else if (consume(TK_STAR_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_MUL, n, assign_expr()));
+    else if (consume(TK_SLASH_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_DIV, n, assign_expr()));
+    else if (consume(TK_PLUS_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_ADD, n, assign_expr()));
+    else if (consume(TK_MINUS_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_SUB, n, assign_expr()));
+    else if (consume(TK_LEFT_SHIFT_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_LEFT_SHIFT, n, assign_expr()));
+    else if (consume(TK_RIGHT_SHIFT_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_RIGHT_SHIFT, n, assign_expr()));
+    else if (consume(TK_AND_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_B_AND, n, assign_expr()));
+    else if (consume(TK_CARET_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_B_EXCLUSIVEOR, n, assign_expr()));
+    else if (consume(TK_BAR_EQUAL))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_B_INCLUSIVEOR, n, assign_expr()));
+    else
+      return n;
   }
-  expect(TK_EQUAL);
-
-  return mkbinary(A_ASSIGN, n, assign_expr());
 }
 
 static Node conditional_expr() {
