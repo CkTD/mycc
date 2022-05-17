@@ -998,6 +998,14 @@ static Node unary_expr() {
     return mkunary(A_B_NOT, unary_expr());
   if (consume(TK_EXCLAMATION))
     return mkunary(A_L_NOT, unary_expr());
+  if (consume(TK_PLUS_PLUS)) {
+    Node u = unary_expr();
+    return mkbinary(A_ASSIGN, u, mkbinary(A_ADD, u, mkicons(1)));
+  }
+  if (consume(TK_MINUS_MINUS)) {
+    Node u = unary_expr();
+    return mkbinary(A_ASSIGN, u, mkbinary(A_SUB, u, mkicons(1)));
+  }
   return primary();
 }
 
