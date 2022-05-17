@@ -230,6 +230,32 @@ static void gen_ternary(Node n) {
   fprintf(stdout, "%s:\n", elabel);
 }
 
+static void gen_unary_arithmetic(Node n) {
+  gen_expr(n->left);
+  fprintf(stdout, "\tpopq\t%%rax\n");
+  if (n->kind == A_B_NOT) {
+    fprintf(stdout, "\tnot%c\t%%%s\n", size_suffix(n->type->size),
+            regs(n->type->size, RA));
+  } else if (n->kind == A_MINUS) {
+    fprintf(stdout, "\tneg%c\t%%%s\n", size_suffix(n->type->size),
+            regs(n->type->size, RA));
+  } else if (n->kind == A_PLUS) {
+  } else if (n->kind == A_L_NOT) {
+    const char* olabel = new_label();
+    const char* elabel = new_label();
+    fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
+            regs(n->left->type->size, RA));
+    fprintf(stdout, "\tje\t%s\n", olabel);
+    fprintf(stdout, "\tmovl\t$0, %%eax\n");
+    fprintf(stdout, "\tjmp\t%s\n", elabel);
+    fprintf(stdout, "%s:\n", olabel);
+    fprintf(stdout, "\tmovl\t$1, %%eax\n");
+    fprintf(stdout, "%s:\n", elabel);
+  }
+
+  fprintf(stdout, "\tpushq\t%%rax\n");
+}
+
 // binary expressions
 // get operand from: %rax(left) and %rdi(right)
 // store result to : %rax
@@ -390,6 +416,12 @@ static void gen_expr(Node n) {
       gen_expr(n->left);
       fprintf(stdout, "\tpopq\t%%rax\n");
       gen_expr(n->right);
+      return;
+    case A_MINUS:
+    case A_PLUS:
+    case A_L_NOT:
+    case A_B_NOT:
+      gen_unary_arithmetic(n);
       return;
   }
 

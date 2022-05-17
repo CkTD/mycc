@@ -66,28 +66,6 @@ static Node mkaux(int kind, Node body) {
   return n;
 }
 
-// kind:
-//     A_ADDRESS_OF, A_DEREFERENCE
-static Node mkuniary(int kind, Node left) {
-  Node n = mknode(kind);
-  n->left = left;
-  if (kind == A_ADDRESS_OF) {
-    if (left->kind == A_DEFERENCE)
-      return left->left;
-    if (!is_lvalue(left))
-      error("lvalue required as unary '&' operand");
-    n->type = ptr_type(left->type);
-  } else if (kind == A_DEFERENCE) {
-    if (left->kind == A_ADDRESS_OF)
-      return left->left;
-    if (left->type->kind != TY_POINTER)
-      error("pointer required as unary '*' operand");
-    n->type = deref_type(left->type);
-  } else
-    error("unknown uniary operator");
-  return n;
-}
-
 static Node mkcvs(Type t, Node body) {
   if (body->type == t)
     return body;
@@ -103,6 +81,62 @@ static Node mkcvs(Type t, Node body) {
     error("not implemented: what type?");
   n->type = t;
   return n;
+}
+
+// kind:
+//     A_ADDRESS_OF, A_DEREFERENCE
+//     A_MINUS, A_PLUS, A_B_NOT, A_L_NOT
+static Node mkunary(int kind, Node left) {
+  Node n = mknode(kind);
+  n->left = left;
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.3.2
+  if (kind == A_ADDRESS_OF) {
+    if (left->kind == A_DEFERENCE)
+      return left->left;
+    if (is_lvalue(left)) {
+      n->type = ptr_type(left->type);
+      return n;
+    }
+    error("invalid operand");
+  }
+  if (kind == A_DEFERENCE) {
+    if (left->kind == A_ADDRESS_OF)
+      return left->left;
+    if (is_ptr(left->type)) {
+      n->type = deref_type(left->type);
+      return n;
+    }
+    error("invalid operand");
+  }
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.3.3
+  if (kind == A_MINUS || kind == A_PLUS) {
+    if (is_arithmetic(n->left->type)) {
+      n->left = mkcvs(integral_promote(n->left->type), n->left);
+      n->type = n->left->type;
+      return n;
+    }
+    error("invalid operand");
+  }
+  if (kind == A_B_NOT) {
+    if (is_integer(n->left->type)) {
+      n->left = mkcvs(integral_promote(n->left->type), n->left);
+      n->type = n->left->type;
+      return n;
+    }
+    error("invalid operand");
+  }
+  if (kind == A_L_NOT) {
+    if (is_scalar(n->left->type)) {
+      n->type = inttype;
+      return n;
+    }
+    error("invalid operand");
+  }
+
+  error("invalid unary operator");
+  return NULL;
 }
 
 // usual arithmetic conversions for binary expressions
@@ -231,7 +265,7 @@ static Node mkbinary(int kind, Node left, Node right) {
     error("invalid operands to binary");
   }
 
-  error("");
+  error("invalid binary operator");
   return NULL;
 }
 
@@ -417,8 +451,8 @@ static Node mkstrlit(const char* str) {
 // relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' shift_expr}*
 // shift_expr:     sum_expr { '<<' | '>>' sum_expr }*
 // sum_expr        :mul_expr { '+'|'-' mul_exp }*
-// mul_exp:        uniary_expr { '*'|'/' uniary_expr }*
-// uniary_expr:    { '*' | '&' }? primary
+// mul_exp:        unary_expr { '*'|'/' unary_expr }*
+// unary_expr:    { '*' | '&' }? primary
 // primary:        identifier { arg_list | array_subscripting }? |
 //                 number  | '('expression ')'
 // arg_list:       '(' expression { ',' expression } ')'
@@ -453,7 +487,7 @@ static Node shift_expr();
 static Node sum_expr();
 static Node mul_expr();
 static Node primary();
-static Node uniary_expr();
+static Node unary_expr();
 static Node func_call(const char* name);
 static Node array_subscripting(Node array);
 
@@ -903,9 +937,9 @@ static Node shift_expr() {
 static Node sum_expr() {
   Node n = mul_expr();
   for (;;) {
-    if (consume(TK_ADD))
+    if (consume(TK_PLUS))
       n = mkbinary(A_ADD, n, mul_expr());
-    else if (consume(TK_SUB))
+    else if (consume(TK_MINUS))
       n = mkbinary(A_SUB, n, mul_expr());
     else
       return n;
@@ -913,22 +947,30 @@ static Node sum_expr() {
 }
 
 static Node mul_expr() {
-  Node n = uniary_expr();
+  Node n = unary_expr();
   for (;;) {
     if (consume(TK_STAR))
-      n = mkbinary(A_MUL, n, uniary_expr());
+      n = mkbinary(A_MUL, n, unary_expr());
     else if (consume(TK_SLASH))
-      n = mkbinary(A_DIV, n, uniary_expr());
+      n = mkbinary(A_DIV, n, unary_expr());
     else
       return n;
   }
 }
 
-static Node uniary_expr() {
+static Node unary_expr() {
   if (consume(TK_AND))
-    return mkuniary(A_ADDRESS_OF, uniary_expr());
+    return mkunary(A_ADDRESS_OF, unary_expr());
   if (consume(TK_STAR))
-    return mkuniary(A_DEFERENCE, uniary_expr());
+    return mkunary(A_DEFERENCE, unary_expr());
+  if (consume(TK_PLUS))
+    return mkunary(A_PLUS, unary_expr());
+  if (consume(TK_MINUS))
+    return mkunary(A_MINUS, unary_expr());
+  if (consume(TK_TILDE))
+    return mkunary(A_B_NOT, unary_expr());
+  if (consume(TK_EXCLAMATION))
+    return mkunary(A_L_NOT, unary_expr());
   return primary();
 }
 

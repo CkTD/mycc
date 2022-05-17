@@ -78,8 +78,8 @@ enum {
   TK_QUESTIONMARK,
   TK_CARET,
   TK_STAR,
-  TK_ADD,
-  TK_SUB,
+  TK_PLUS,
+  TK_MINUS,
   TK_SLASH,
   TK_ANDAND,
   TK_BARBAR,
@@ -94,6 +94,8 @@ enum {
   TK_GREATER,
   TK_LESSEQUAL,
   TK_LESS,
+  TK_EXCLAMATION,
+  TK_TILDE,
   /***** keyword *****/
   TK_VOID,
   TK_CHAR,
@@ -169,6 +171,10 @@ enum {
   // 3 right
   A_ADDRESS_OF,
   A_DEFERENCE,
+  A_MINUS,
+  A_PLUS,
+  A_L_NOT,
+  A_B_NOT,
   // 2 left
   A_FUNC_CALL,
   A_ARRAY_SUBSCRIPTING,
