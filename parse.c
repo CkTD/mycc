@@ -567,7 +567,7 @@ static Node init_declarator(Type ty) {
     if (is_ptr(ty))
       error("not implemented: initialize array");
     if (current_func)
-      return mkbinary(A_ASSIGN, n, e);
+      return mkaux(A_EXPR_STAT, mkbinary(A_ASSIGN, n, e));
     if (e->kind != A_NUM && e->kind != A_STRING_LITERAL)
       error(
           "global variable can only be initializd by integer constant or "

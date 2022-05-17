@@ -174,30 +174,23 @@ static void gen_funccall(Node n) {
   fprintf(stdout, "// call function \"%s\"\n", n->callee_name);
   Node node;
 
+  int nargs = list_length(n->args);
+  int nregargs = nargs > 6 ? 6 : nargs;
+  int nmemargs = nargs - nregargs;
+
+  if (nmemargs % 2)
+    fprintf(stdout, "\tsubq\t$8, %%rsp\n");
+
   list_for_each_reverse(n->args, node) gen_expr(node->body);
-  int nregargs = list_length(n->args);
-  if (nregargs > 6)
-    nregargs = 6;
+
   for (int i = 0; i < nregargs; i++) {
     fprintf(stdout, "\tpopq\t%%%s\n", regs(8, i));
   }
 
-  int l = label_id++;
-  fprintf(stdout, "\tmovq\t%%rsp, %%rax\n");
-  fprintf(stdout, "\tandq\t$0xf, %%rax\n");
-  fprintf(stdout, "\tcmp\t$0, %%rax\n");
-  fprintf(stdout, "\tjnz\t.L.asc.%d\n", l);
-  fprintf(stdout, "\tmovq\t$0, %%rax\n");
   fprintf(stdout, "\tcall\t%s\n", n->callee_name);
-  fprintf(stdout, "\tjmp\t.L.asc.end.%d\n", l);
-  fprintf(stdout, ".L.asc.%d:\n", l);
-  fprintf(stdout, "\tsubq\t$8, %%rsp\n");
-  fprintf(stdout, "\tmovq\t$0, %%rax\n");
-  fprintf(stdout, "\tcall\t%s\n", n->callee_name);
-  fprintf(stdout, "\taddq\t$8, %%rsp\n");
-  fprintf(stdout, ".L.asc.end.%d:\n", l);
+  if (nmemargs % 2)
+    fprintf(stdout, "\taddq\t$8, %%rsp\n");
   fprintf(stdout, "\tpushq\t%%rax\n");
-
   fprintf(stdout, "// ---- call function \"%s\"\n", n->callee_name);
 }
 
@@ -639,7 +632,7 @@ static void handle_lvars(Node n) {
   if (offset % 8) {
     offset += 8 - (offset % 8);
   }
-  n->stack_size = offset;
+  n->stack_size = (offset + 15) & -16;
 }
 
 static void gen_func(Node globals) {
