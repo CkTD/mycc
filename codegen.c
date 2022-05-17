@@ -11,7 +11,7 @@ enum {
   RCX,
   R8,
   R9,
-  RA,   // Return value, callee-owned
+  RAX,  // Return value, callee-owned
   R10,  // Scratch/temporary, callee-owned
   R11,
   RSP,  // Stack pointer, caller-owned
@@ -210,7 +210,7 @@ static void gen_conversion(Node n) {
     fprintf(stdout, "\tmov%c%c%c\t%%%s, %%%s\n",
             is_signed(n->body->type) ? 's' : 'z',
             size_suffix(n->body->type->size), size_suffix(n->type->size),
-            regs(n->body->type->size, RA), regs(n->type->size, RA));
+            regs(n->body->type->size, RAX), regs(n->type->size, RAX));
     fprintf(stdout, "\tpushq\t%%rax\n");
   }
 }
@@ -221,7 +221,7 @@ static void gen_ternary(Node n) {
   gen_expr(n->cond);
   fprintf(stdout, "\tpopq\t%%rax\n");
   fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->cond->type->size),
-          regs(n->cond->type->size, RA));
+          regs(n->cond->type->size, RAX));
   fprintf(stdout, "\tje\t%s\n", rlabel);
   gen_expr(n->left);
   fprintf(stdout, "\tjmp\t%s\n", elabel);
@@ -235,16 +235,16 @@ static void gen_unary_arithmetic(Node n) {
   fprintf(stdout, "\tpopq\t%%rax\n");
   if (n->kind == A_B_NOT) {
     fprintf(stdout, "\tnot%c\t%%%s\n", size_suffix(n->type->size),
-            regs(n->type->size, RA));
+            regs(n->type->size, RAX));
   } else if (n->kind == A_MINUS) {
     fprintf(stdout, "\tneg%c\t%%%s\n", size_suffix(n->type->size),
-            regs(n->type->size, RA));
+            regs(n->type->size, RAX));
   } else if (n->kind == A_PLUS) {
   } else if (n->kind == A_L_NOT) {
     const char* olabel = new_label();
     const char* elabel = new_label();
     fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
-            regs(n->left->type->size, RA));
+            regs(n->left->type->size, RAX));
     fprintf(stdout, "\tje\t%s\n", olabel);
     fprintf(stdout, "\tmovl\t$0, %%eax\n");
     fprintf(stdout, "\tjmp\t%s\n", elabel);
@@ -273,11 +273,14 @@ static void gen_ementary_arithmetic(Node n) {
             to == 'l' ? 'd' : to);
     fprintf(stdout, "\t%sdiv%c\t%%%s\n", is_signed(n->type) ? "i" : "",
             size_suffix(n->type->size), regs(n->type->size, RDI));
+    if (n->kind == A_MOD)
+      fprintf(stdout, "\tmov%c\t%%%s, %%%s\n", size_suffix(n->type->size),
+              regs(n->type->size, RDX), regs(n->type->size, RAX));
     return;
   }
 
   fprintf(stdout, "\t%s%c\t%%%s, %%%s\n", inst, size_suffix(n->type->size),
-          regs(n->type->size, RDI), regs(n->type->size, RA));
+          regs(n->type->size, RDI), regs(n->type->size, RAX));
 }
 
 static void gen_compare(Node n) {
@@ -322,7 +325,7 @@ static void gen_logical_and(Node n) {
   const char* flabel = new_label();
   const char* elabel = new_label();
   fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
-          regs(n->left->type->size, RA));
+          regs(n->left->type->size, RAX));
   fprintf(stdout, "\tje\t%s\n", flabel);
   fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->right->type->size),
           regs(n->right->type->size, RDI));
@@ -338,7 +341,7 @@ static void gen_logical_or(Node n) {
   const char* tlabel = new_label();
   const char* elabel = new_label();
   fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
-          regs(n->left->type->size, RA));
+          regs(n->left->type->size, RAX));
   fprintf(stdout, "\tjne\t%s\n", tlabel);
   fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->right->type->size),
           regs(n->right->type->size, RDI));
@@ -362,7 +365,7 @@ static void gen_bitwise(Node n) {
     error("what bitwise operator");
 
   fprintf(stdout, "\t%s%c\t%%%s, %%%s\n", inst, size_suffix(n->type->size),
-          regs(n->type->size, RDI), regs(n->type->size, RA));
+          regs(n->type->size, RDI), regs(n->type->size, RAX));
 }
 
 static void gen_shift(Node n) {
@@ -374,7 +377,7 @@ static void gen_shift(Node n) {
 
   fprintf(stdout, "\tmovq\t%%rdi, %%rcx\n");
   fprintf(stdout, "\t%s%c\t%%cl, %%%s\n", inst,
-          size_suffix(n->left->type->size), regs(n->left->type->size, RA));
+          size_suffix(n->left->type->size), regs(n->left->type->size, RAX));
 }
 
 static void gen_expr(Node n) {
@@ -437,6 +440,7 @@ static void gen_expr(Node n) {
     case A_SUB:
     case A_DIV:
     case A_MUL:
+    case A_MOD:
       gen_ementary_arithmetic(n);
       break;
     case A_EQ:
@@ -666,7 +670,8 @@ static void gen_func(Node globals) {
       else {
         fprintf(stdout, "\tmovq\t%d(%%rbp), %%rax\n", 8 * (i - 6) + 16);
         fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
-                size_suffix(v->type->size), regs(v->type->size, RA), v->offset);
+                size_suffix(v->type->size), regs(v->type->size, RAX),
+                v->offset);
       }
       i++;
     }

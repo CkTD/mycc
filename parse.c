@@ -264,6 +264,13 @@ static Node mkbinary(int kind, Node left, Node right) {
     }
     error("invalid operands to binary");
   }
+  if (kind == A_MOD) {
+    if (is_integer(n->left->type) && is_integer(n->right->type)) {
+      n->type = usual_arithmetic_conversions(n);
+      return n;
+    }
+    error("invalid operands to binary");
+  }
 
   error("invalid binary operator");
   return NULL;
@@ -451,7 +458,7 @@ static Node mkstrlit(const char* str) {
 // relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' shift_expr}*
 // shift_expr:     sum_expr { '<<' | '>>' sum_expr }*
 // sum_expr        :mul_expr { '+'|'-' mul_exp }*
-// mul_exp:        unary_expr { '*'|'/' unary_expr }*
+// mul_exp:        unary_expr { '*'|'/' | '%' unary_expr }*
 // unary_expr:    { '*' | '&' }? primary
 // primary:        identifier { arg_list | array_subscripting }? |
 //                 number  | '('expression ')'
@@ -847,7 +854,7 @@ static Node conditional_expr() {
 static Node logical_or_expr() {
   Node n = logical_and_expr();
   for (;;) {
-    if (consume(TK_BARBAR))
+    if (consume(TK_BAR_BAR))
       n = mkbinary(A_L_OR, n, logical_and_expr());
     else
       return n;
@@ -857,7 +864,7 @@ static Node logical_or_expr() {
 static Node logical_and_expr() {
   Node n = inclusive_or_expr();
   for (;;) {
-    if (consume(TK_ANDAND))
+    if (consume(TK_AND_AND))
       n = mkbinary(A_L_AND, n, inclusive_or_expr());
     else
       return n;
@@ -897,9 +904,9 @@ static Node bitwise_and_expr() {
 static Node eq_expr() {
   Node n = rel_expr();
   for (;;) {
-    if (consume(TK_EQUALEQUAL))
+    if (consume(TK_EQUAL_EQUAL))
       n = mkbinary(A_EQ, n, rel_expr());
-    else if (consume(TK_NOTEQUAL))
+    else if (consume(TK_NOT_EQUAL))
       n = mkbinary(A_NE, n, rel_expr());
     else
       return n;
@@ -913,9 +920,9 @@ static Node rel_expr() {
       n = mkbinary(A_GT, n, shift_expr());
     else if (consume(TK_LESS))
       n = mkbinary(A_LT, n, shift_expr());
-    else if (consume(TK_GREATEREQUAL))
+    else if (consume(TK_GREATER_EQUAL))
       n = mkbinary(A_GE, n, shift_expr());
-    else if (consume(TK_LESSEQUAL))
+    else if (consume(TK_LESS_EQUAL))
       n = mkbinary(A_LE, n, shift_expr());
     else
       return n;
@@ -953,6 +960,8 @@ static Node mul_expr() {
       n = mkbinary(A_MUL, n, unary_expr());
     else if (consume(TK_SLASH))
       n = mkbinary(A_DIV, n, unary_expr());
+    else if (consume(TK_PERCENT))
+      n = mkbinary(A_MOD, n, unary_expr());
     else
       return n;
   }
