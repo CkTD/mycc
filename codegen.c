@@ -386,6 +386,11 @@ static void gen_expr(Node n) {
     case A_TERNARY:
       gen_ternary(n);
       return;
+    case A_COMMA:
+      gen_expr(n->left);
+      fprintf(stdout, "\tpopq\t%%rax\n");
+      gen_expr(n->right);
+      return;
   }
 
   // binary expr

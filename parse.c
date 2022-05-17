@@ -114,6 +114,7 @@ static Type usual_arithmetic_conversions(Node node) {
 }
 
 // kind:
+//     A_COMMA
 //     A_ASSIGN
 //     A_L_OR, A_L_AND,
 //     A_B_INCLUSIVE, A_B_EXCLUSIVE, A_B_AND
@@ -126,8 +127,16 @@ static Node mkbinary(int kind, Node left, Node right) {
   n->left = left;
   n->right = right;
 
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.17
+  if (kind == A_COMMA) {
+    n->type = n->right->type;
+    return n;
+  }
+
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.16
   if (kind == A_ASSIGN) {
+    if (!is_lvalue(n->left))
+      error("lvalue required as left operand of assignment");
     n->right = mkcvs(n->left->type, n->right);
     n->type = n->left->type;
     return n;
@@ -395,7 +404,8 @@ static Node mkstrlit(const char* str) {
 // comp_stat:      '{' {declaration}* {stat}* '}'
 // print_stat:     'print' expr;
 // expr_stat:      {expression}? ;
-// expression:     assign_expr
+// expression:     comma_expr
+// comma_expr:     assign_expr { ', ' assign_expr }*
 // assign_expr:    conditional_expr { '=' assign_expr }
 // conditional_expr: logical_or_expr { '?' expression : conditional_expr }?
 // logical_or_expr:  logical_and_expr { '||' logical_and_expr }*
@@ -429,6 +439,7 @@ static Node dowhile_stat();
 static Node for_stat();
 static Node expr_stat();
 static Node expression();
+static Node comma_expr();
 static Node assign_expr();
 static Node conditional_expr();
 static Node logical_or_expr();
@@ -511,7 +522,7 @@ Type type_spec() {
 static Node init_declarator(Type ty) {
   Node n = declarator(ty);
   if (consume(TK_EQUAL)) {
-    Node e = expression();
+    Node e = assign_expr();
     if (is_ptr(ty))
       error("not implemented: initialize array");
     if (current_func)
@@ -766,7 +777,17 @@ static Node expr_stat() {
 }
 
 static Node expression() {
-  return assign_expr();
+  return comma_expr();
+}
+
+static Node comma_expr() {
+  Node n = assign_expr();
+  for (;;) {
+    if (consume(TK_COMMA))
+      n = mkbinary(A_COMMA, n, assign_expr());
+    else
+      return n;
+  }
 }
 
 static Node assign_expr() {
@@ -774,10 +795,6 @@ static Node assign_expr() {
   if (!match(TK_EQUAL)) {
     return n;
   }
-
-  if (!is_lvalue(n))
-    error("lvalue required as left operand of assignment");
-
   expect(TK_EQUAL);
 
   return mkbinary(A_ASSIGN, n, assign_expr());
@@ -975,7 +992,7 @@ static Node func_call(const char* name) {
   Node cur_param = (f && f->protos) ? f->protos->next : NULL;
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
-    Node arg = expression();
+    Node arg = assign_expr();
     if (!f || !f->protos) {  // function without prototype
       arg = mkcvs(integral_promote(arg->type), arg);
     } else {  // function with porotype

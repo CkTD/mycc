@@ -134,6 +134,8 @@ Token tokenize(const char* input);
  *************/
 enum {
   /***** expressions *****/
+  // 17 left
+  A_COMMA,
   // 16 right
   A_ASSIGN,
   A_TERNARY,
