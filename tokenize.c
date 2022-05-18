@@ -56,6 +56,7 @@ const char* token_str[] = {
     [TK_INT] = "int",
     [TK_SHORT] = "short",
     [TK_LONG] = "long",
+    [TK_SIZEOF] = "sizeof",
     [TK_IF] = "if",
     [TK_ELSE] = "else",
     [TK_WHILE] = "while",

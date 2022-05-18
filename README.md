@@ -68,7 +68,10 @@
             - [x] simple escape
             - [ ] octal/hex escape
 - [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
-- [ ] [declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
+    - [ ] operand constrains: null pointer? type qualifer? type compatible?
+    - [ ] sizeof type-name
+    - [ ] struct/union related operator
+- [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [x] init list
 - [ ] Others
     - [x] remove print statement by calling library function "printf"

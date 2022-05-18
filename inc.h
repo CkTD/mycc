@@ -116,6 +116,7 @@ enum {
   TK_INT,
   TK_SHORT,
   TK_LONG,
+  TK_SIZEOF,
   TK_IF,
   TK_ELSE,
   TK_WHILE,
@@ -191,6 +192,7 @@ enum {
   A_PLUS,
   A_L_NOT,
   A_B_NOT,
+  A_SIZE_OF,
   // 2 left
   A_FUNC_CALL,
   A_ARRAY_SUBSCRIPTING,

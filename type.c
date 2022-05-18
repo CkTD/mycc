@@ -96,6 +96,9 @@ int is_scalar(Type t) {
 }
 
 Type integral_promote(Type t) {
+  if (!is_integer(t))
+    return t;
+
   if (t->size < inttype->size)
     return inttype;
   return t;

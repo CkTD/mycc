@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include "inc.h"
 
 /***********************
@@ -75,6 +76,7 @@ static Node mkcvs(Type t, Node body) {
   if (is_ptr(t) && is_ptr(body->type)) {
     if (!is_ptr_compatiable(t, body->type))
       warn("convert between incompatiable pointers");
+    return body;
   } else if (is_ptr(t) || is_ptr(body->type))
     warn("convert between pointer and integeral types");
   else if (!is_integer(t) || !is_integer(body->type))
@@ -87,6 +89,7 @@ static Node mkcvs(Type t, Node body) {
 //     A_ADDRESS_OF, A_DEREFERENCE
 //     A_MINUS, A_PLUS, A_B_NOT, A_L_NOT
 //     A_POSTFIX_INC, A_POSTFIX_DEC
+//     A_SIZE_OF
 static Node mkunary(int kind, Node left) {
   Node n = mknode(kind);
   n->left = left;
@@ -144,6 +147,13 @@ static Node mkunary(int kind, Node left) {
     n->type = n->left->type;
     return mkcvs(integral_promote(n->type), n);
   }
+
+  if (kind == A_SIZE_OF) {
+    Node s = mkicons(n->left->type->size);
+    s->type = uinttype;
+    return s;
+  }
+
   error("invalid unary operator");
   return NULL;
 }
@@ -425,7 +435,7 @@ static Node mkstrlit(const char* str) {
   Node n = mknode(A_STRING_LITERAL);
   n->string_value = str;
   n->next = globals;
-  n->type = ptr_type(chartype);
+  n->type = array_type(chartype, strlen(str) + 1);
   globals = n;
   return n;
 }
@@ -468,7 +478,7 @@ static Node mkstrlit(const char* str) {
 // shift_expr:     sum_expr { '<<' | '>>' sum_expr }*
 // sum_expr        :mul_expr { '+'|'-' mul_exp }*
 // mul_exp:        unary_expr { '*'|'/' | '%' unary_expr }*
-// unary_expr:    { '*'|'&'|'+'|'- '|'~'|'!'|'++'|'--' }? postfix_expr
+// unary_expr:    { '*'|'&'|'+'|'- '|'~'|'!'|'++'|'--'|'sizeof' }? postfix_expr
 // postfix_expr:  primary_expr { arg_list|array_subscripting|'++'|'--' }*
 // primary_expr:  identifier | number | string-literal | '('expression ')'
 // arg_list:       '(' expression { ',' expression } ')'
@@ -1017,6 +1027,8 @@ static Node unary_expr() {
     Node u = unary_expr();
     return mkbinary(A_ASSIGN, u, mkbinary(A_SUB, u, mkicons(1)));
   }
+  if (consume(TK_SIZEOF))
+    return mkunary(A_SIZE_OF, unary_expr());
   return postfix_expr();
 }
 
@@ -1090,6 +1102,7 @@ static Node func_call(Node n) {
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
     Node arg = assign_expr();
+
     if (!f || !f->protos) {  // function without prototype
       arg = mkcvs(integral_promote(arg->type), arg);
     } else {  // function with porotype

@@ -76,7 +76,8 @@ static void gen_stat(Node n);
  ******************************/
 
 static void gen_iconst(Node n) {
-  if (n->type != inttype)
+  // TODO: to hold a unsigned int , maybe use long type for n->intvalue?
+  if (n->type != inttype && n->type != uinttype)
     error("a number constant must have type int");
   fprintf(stdout, "\tmovl\t$%d, %%eax\n", n->intvalue);
   fprintf(stdout, "\tpushq\t%%rax\n");
@@ -198,12 +199,13 @@ static void gen_conversion(Node n) {
   gen_expr(n->body);
 
   // for now,  we only have scaler type
-  if (n->body->type->size < n->type->size) {
+  int src_size = is_array(n->body->type) ? 8 : n->body->type->size;
+  if (src_size < n->type->size) {
     fprintf(stdout, "\tpopq\t%%rax\n");
     fprintf(stdout, "\tmov%c%c%c\t%%%s, %%%s\n",
-            is_signed(n->body->type) ? 's' : 'z',
-            size_suffix(n->body->type->size), size_suffix(n->type->size),
-            regs(n->body->type->size, RAX), regs(n->type->size, RAX));
+            is_signed(n->body->type) ? 's' : 'z', size_suffix(src_size),
+            size_suffix(n->type->size), regs(src_size, RAX),
+            regs(n->type->size, RAX));
     fprintf(stdout, "\tpushq\t%%rax\n");
   }
 }
