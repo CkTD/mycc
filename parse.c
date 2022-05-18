@@ -351,7 +351,8 @@ int list_length(Node head) {
  ***********************/
 // local variables are accumulated to this list during parsing current function
 static Node locals;
-// global variables/function are accumulated to this list during parsing
+// global variables/function/string-literal
+// are accumulated to this list during parsing
 static Node globals;
 
 typedef struct scope* Scope;
@@ -443,15 +444,21 @@ static Node mkstrlit(const char* str) {
 /*****************************
  * recursive parse procedure *
  *****************************/
+
 // trans_unit:     { func_def | declaration }*
-// declaration:    type_spec init_declarator { ',' init_declarator }* ';'
-// type_spec:      'unsigned'? { 'char' | 'int' | 'short' | 'long' }
+// =======================   Function DEF   =======================
+// func_def:       declaration_specifiers identifier '(' param_list ')'
+// comp_stat param_list:     param_declaration { ',' param_declaration }
+// param_declaration: { declaration_specifiers }+ identifier
+// =======================   Declaration   =======================
+// declaration:    declaration_specifiers
+//                 init_declarator { ',' init_declarator }* ';'
+// declaration_specifiers: { type_specifier }*
+// type_specifier: 'void'|'char'|'int'|'short'|'long'|'unsigned'|'signed'
 // init_declarator:declarator { '=' expression }?
 // declarator:     {'*'}* identifier { '[' expression ']' }?
-// func_def:       type_spec identifier '(' param_list ')' comp_stat
-// param_list:     param_declaration { ',' param_declaration }
-// param_declaration: { type_spec }+ identifier
-// statement:      expr_stat | print_stat | comp_stat
+// =======================   Statement   =======================
+// statement:      expr_stat | comp_stat
 //                 selection-stat | iteration-stat | jump_stat
 // selection-stat: if_stat
 // if_stat:        'if' '('  expr_stat ')' statement { 'else' statement }
@@ -462,8 +469,8 @@ static Node mkstrlit(const char* str) {
 //                 statement
 // jump_stat:      break ';' | continue ';' | 'return' expression? ';'
 // comp_stat:      '{' {declaration}* {stat}* '}'
-// print_stat:     'print' expr;
-// expr_stat:      {expression}? ;
+// expr_stat:      {expression}? ';'
+// =======================   Expression   =======================
 // expression:     comma_expr
 // comma_expr:     assign_expr { ', ' assign_expr }*
 // assign_expr:    conditional_expr { '=' assign_expr }
@@ -488,7 +495,7 @@ static Node trans_unit();
 static Node declaration();
 static Node init_declarator(Type ty);  // scope????
 static Node declarator(Type ty);
-static Type type_spec();
+static Type declaration_specifiers();
 static Node function();
 static Node param_list();
 static Node statement(int reuse_scope);
@@ -522,7 +529,7 @@ static Node variable(Node n);
 static Node current_func;
 static int check_next_top_level_item() {
   Token back = t;
-  type_spec();
+  declaration_specifiers();
   while (consume(TK_STAR))
     ;
   int is_function = consume(TK_IDENT) && consume(TK_OPENING_PARENTHESES);
@@ -541,7 +548,7 @@ static Node trans_unit() {
 }
 
 static Node declaration() {
-  Type ty = type_spec();
+  Type ty = declaration_specifiers();
   struct node head = {};
   Node last = &head;
   last->next = init_declarator(ty);
@@ -556,27 +563,119 @@ static Node declaration() {
   return head.next;
 }
 
-Type type_spec() {
-  Type ty = NULL;
-  if (consume(TK_VOID))
-    ty = voidtype;
-  else if (consume(TK_UNSIGNED)) {
-    if (consume(TK_CHAR))
+#define get_specifier(specs, spec) (specs & spec)
+#define set_specifier(specs, spec) (specs |= spec)
+enum {
+  // type specifiers
+  SPEC_VOID = 1 << 0,
+  SPEC_CHAR = 1 << 1,
+  SPEC_SHORT = 1 << 2,
+  SPEC_INT = 1 << 3,
+  SPEC_LONG1 = 1 << 4,
+  SPEC_LONG2 = 1 << 5,
+  SPEC_SIGNED = 1 << 6,
+  SPEC_UNSIGNED = 1 << 7,
+};
+
+Type declaration_specifiers() {
+  Type ty;
+  int specifiers = 0;
+  for (;;) {
+    if (consume(TK_VOID)) {
+      if (get_specifier(specifiers, SPEC_VOID))
+        error("two or more data types in declaration specifiers");
+      set_specifier(specifiers, SPEC_VOID);
+    } else if (consume(TK_CHAR)) {
+      if (get_specifier(specifiers, SPEC_CHAR))
+        error("two or more data types in declaration specifiers");
+      set_specifier(specifiers, SPEC_CHAR);
+    } else if (consume(TK_SHORT)) {
+      if (get_specifier(specifiers, SPEC_SHORT))
+        error("two or more data types in declaration specifiers");
+      set_specifier(specifiers, SPEC_SHORT);
+    } else if (consume(TK_INT)) {
+      if (get_specifier(specifiers, SPEC_INT))
+        error("two or more data types in declaration specifiers");
+      set_specifier(specifiers, SPEC_INT);
+    } else if (consume(TK_LONG)) {
+      if (get_specifier(specifiers, SPEC_LONG1)) {
+        if (get_specifier(specifiers, SPEC_LONG2))
+          error("two or more data types in declaration specifiers");
+        else
+          set_specifier(specifiers, SPEC_LONG2);
+      } else {
+        set_specifier(specifiers, SPEC_LONG1);
+      }
+    } else if (consume(TK_UNSIGNED)) {
+      if (get_specifier(specifiers, SPEC_UNSIGNED))
+        error("two or more data types in declaration specifiers");
+      set_specifier(specifiers, SPEC_UNSIGNED);
+    } else if (consume(TK_SIGNED)) {
+      if (get_specifier(specifiers, SPEC_SIGNED))
+        error("two or more data types in declaration specifiers");
+      set_specifier(specifiers, SPEC_SIGNED);
+    } else
+      break;
+  }
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.7.2
+  int type_spec = specifiers & ((1 << 8) - 1);
+  switch (type_spec) {
+    case 0:
+      error("no data type in declaration specifiers");
+      break;
+    case SPEC_VOID:
+      ty = voidtype;
+      break;
+    case SPEC_CHAR:
+    case SPEC_CHAR | SPEC_SIGNED:
+      ty = chartype;
+      break;
+    case SPEC_CHAR | SPEC_UNSIGNED:
       ty = uchartype;
-    else if (consume(TK_SHORT))
+      break;
+    case SPEC_SHORT:
+    case SPEC_SIGNED | SPEC_SHORT:
+    case SPEC_SHORT | SPEC_INT:
+    case SPEC_SIGNED | SPEC_SHORT | SPEC_INT:
+      ty = shorttype;
+      break;
+    case SPEC_UNSIGNED | SPEC_SHORT:
+    case SPEC_UNSIGNED | SPEC_SHORT | SPEC_INT:
       ty = ushorttype;
-    else if (consume(TK_INT))
+      break;
+    case SPEC_INT:
+    case SPEC_SIGNED:
+    case SPEC_INT | SPEC_SIGNED:
+      ty = inttype;
+      break;
+    case SPEC_UNSIGNED:
+    case SPEC_UNSIGNED | SPEC_INT:
       ty = uinttype;
-    else if (consume(TK_LONG))
+      break;
+    case SPEC_LONG1:
+    case SPEC_SIGNED | SPEC_LONG1:
+    case SPEC_LONG1 | SPEC_INT:
+    case SPEC_SIGNED | SPEC_LONG1 | SPEC_INT:
+      ty = longtype;
+      break;
+    case SPEC_UNSIGNED | SPEC_LONG1:
+    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_INT:
       ty = ulongtype;
-  } else if (consume(TK_CHAR))
-    ty = chartype;
-  else if (consume(TK_SHORT))
-    ty = shorttype;
-  else if (consume(TK_INT))
-    ty = inttype;
-  else if (consume(TK_LONG))
-    ty = longtype;
+      break;
+    case SPEC_LONG1 | SPEC_LONG2:
+    case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2:
+    case SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+    case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+      ty = longtype;
+      break;
+    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2:
+    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+      ty = ulongtype;
+      break;
+    default:
+      error("two or more data types in declaration specifiers");
+  }
 
   return ty;
 }
@@ -639,7 +738,7 @@ static int protos_compatitable(Node p1, Node p2) {
 }
 
 static Node function() {
-  Type ty = type_spec();
+  Type ty = declaration_specifiers();
   while (consume(TK_STAR))
     ty = ptr_type(ty);
 
@@ -693,7 +792,7 @@ Node param_list() {
       break;
     }
 
-    Type ty = type_spec();
+    Type ty = declaration_specifiers();
     while (consume(TK_STAR))
       ty = ptr_type(ty);
     const char* name = expect(TK_IDENT)->name;
