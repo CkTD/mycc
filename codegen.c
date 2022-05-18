@@ -249,6 +249,21 @@ static void gen_unary_arithmetic(Node n) {
   fprintf(stdout, "\tpushq\t%%rax\n");
 }
 
+static void gen_postfix_incdec(Node n) {
+  gen_addr(n->left);
+  gen_load(n->type);
+
+  gen_addr(n->left);
+  fprintf(stdout, "\tpopq\t%%rax\n");
+  if (is_arithmetic(n->type))
+    fprintf(stdout, "\t%s%c\t(%%rax)\n",
+            n->kind == A_POSTFIX_INC ? "inc" : "dec",
+            size_suffix(n->type->size));
+  else  // pointer
+    fprintf(stdout, "\t%sq\t$%d, (%%rax)\n",
+            n->kind == A_POSTFIX_INC ? "add" : "sub", n->type->base->size);
+}
+
 // binary expressions
 // get operand from: %rax(left) and %rdi(right)
 // store result to : %rax
@@ -418,6 +433,10 @@ static void gen_expr(Node n) {
     case A_L_NOT:
     case A_B_NOT:
       gen_unary_arithmetic(n);
+      return;
+    case A_POSTFIX_INC:
+    case A_POSTFIX_DEC:
+      gen_postfix_incdec(n);
       return;
   }
 

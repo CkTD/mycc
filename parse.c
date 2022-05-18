@@ -86,6 +86,7 @@ static Node mkcvs(Type t, Node body) {
 // kind:
 //     A_ADDRESS_OF, A_DEREFERENCE
 //     A_MINUS, A_PLUS, A_B_NOT, A_L_NOT
+//     A_POSTFIX_INC, A_POSTFIX_DEC
 static Node mkunary(int kind, Node left) {
   Node n = mknode(kind);
   n->left = left;
@@ -135,6 +136,14 @@ static Node mkunary(int kind, Node left) {
     error("invalid operand");
   }
 
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.4
+  if (kind == A_POSTFIX_INC || kind == A_POSTFIX_DEC) {
+    if (!is_lvalue(n->left) ||
+        !(is_arithmetic(n->left->type) || is_ptr(n->left->type)))
+      error("invalid operand");
+    n->type = n->left->type;
+    return mkcvs(integral_promote(n->type), n);
+  }
   error("invalid unary operator");
   return NULL;
 }
@@ -459,9 +468,9 @@ static Node mkstrlit(const char* str) {
 // shift_expr:     sum_expr { '<<' | '>>' sum_expr }*
 // sum_expr        :mul_expr { '+'|'-' mul_exp }*
 // mul_exp:        unary_expr { '*'|'/' | '%' unary_expr }*
-// unary_expr:    { '*' | '&' }? primary
-// primary:        identifier { arg_list | array_subscripting }? |
-//                 number  | '('expression ')'
+// unary_expr:    { '*'|'&'|'+'|'- '|'~'|'!'|'++'|'--' }? postfix_expr
+// postfix_expr:  primary_expr { arg_list|array_subscripting|'++'|'--' }*
+// primary_expr:  identifier | number | string-literal | '('expression ')'
 // arg_list:       '(' expression { ',' expression } ')'
 // array_subscripting: '[' expression ']'
 
@@ -493,10 +502,12 @@ static Node rel_expr();
 static Node shift_expr();
 static Node sum_expr();
 static Node mul_expr();
-static Node primary();
 static Node unary_expr();
-static Node func_call(const char* name);
-static Node array_subscripting(Node array);
+static Node postfix_expr();
+static Node primary_expr();
+static Node func_call(Node n);
+static Node array_subscripting(Node n);
+static Node variable(Node n);
 
 static Node current_func;
 static int check_next_top_level_item() {
@@ -1006,13 +1017,29 @@ static Node unary_expr() {
     Node u = unary_expr();
     return mkbinary(A_ASSIGN, u, mkbinary(A_SUB, u, mkicons(1)));
   }
-  return primary();
+  return postfix_expr();
 }
 
-static Node primary() {
+static Node postfix_expr() {
+  Node n = primary_expr();
+  for (;;) {
+    if (match(TK_OPENING_PARENTHESES))
+      n = func_call(n);
+    else if (match(TK_OPENING_BRACKETS))
+      n = array_subscripting(n);
+    else if (consume(TK_PLUS_PLUS))
+      n = mkunary(A_POSTFIX_INC, n->kind == A_IDENT ? variable(n) : n);
+    else if (consume(TK_MINUS_MINUS))
+      n = mkunary(A_POSTFIX_DEC, n->kind == A_IDENT ? variable(n) : n);
+    else
+      return n->kind == A_IDENT ? variable(n) : n;
+  }
+}
+
+static Node primary_expr() {
   Token tok;
 
-  // number
+  // constant
   if ((tok = consume(TK_NUM))) {
     Node n = mknode(A_NUM);
     n->type = inttype;
@@ -1021,25 +1048,14 @@ static Node primary() {
   }
 
   // string literal
-  if ((tok = consume(TK_STRING))) {
+  if ((tok = consume(TK_STRING)))
     return mkstrlit(tok->name);
-  }
 
+  // identifier
   if ((tok = consume(TK_IDENT))) {
-    // function call
-    if (match(TK_OPENING_PARENTHESES))
-      return func_call(tok->name);
-
-    Node v = find_var(tok->name);
-    if (!v)
-      error("undefined variable %s", tok->name);
-
-    // array subscripting
-    if (match(TK_OPENING_BRACKETS))
-      return array_subscripting(v);
-
-    // variable
-    return v;
+    Node n = mknode(A_IDENT);
+    n->name = tok->name;
+    return n;
   }
 
   // parentheses
@@ -1053,8 +1069,12 @@ static Node primary() {
   return NULL;
 }
 
-static Node func_call(const char* name) {
-  Node n = mknode(A_FUNC_CALL);
+static Node func_call(Node n) {
+  if (n->kind != A_IDENT)
+    error("not implemented");
+  const char* name = n->name;
+
+  n = mknode(A_FUNC_CALL);
   Node f = find_global(name);
 
   if (f && !f->is_function)
@@ -1094,6 +1114,12 @@ static Node func_call(const char* name) {
 }
 
 static Node array_subscripting(Node n) {
+  if (n->kind == A_IDENT) {
+    n = find_var(n->name);
+    if (!n)
+      error("undefined array %s", n->name);
+  }
+
   while (consume(TK_OPENING_BRACKETS)) {
     if (!is_ptr(n->type))
       error("only array/pointer can be subscripted");
@@ -1104,6 +1130,13 @@ static Node array_subscripting(Node n) {
     n = s;
     expect(TK_CLOSING_BRACKETS);
   }
+  return n;
+}
+
+static Node variable(Node n) {
+  n = find_var(n->name);
+  if (!n)
+    error("undefined variable %s", n->name);
   return n;
 }
 

@@ -182,6 +182,9 @@ enum {
   A_DIV,
   A_MOD,
   // 3 right
+  // prefix inc/dec are implemeted by A_XX_ASSIGN and A_ADD/A_SUB
+  // A_PREFIX_INC
+  // A_PREFIX_DEC
   A_ADDRESS_OF,
   A_DEFERENCE,
   A_MINUS,
@@ -191,9 +194,12 @@ enum {
   // 2 left
   A_FUNC_CALL,
   A_ARRAY_SUBSCRIPTING,
+  A_POSTFIX_INC,
+  A_POSTFIX_DEC,
   // primary
   A_NUM,
-  A_VAR,
+  A_IDENT,
+  A_STRING_LITERAL,
   /***** statement *****/
   A_IF,
   A_DOWHILE,
@@ -207,10 +213,9 @@ enum {
   A_EXPR_STAT,
   A_CONVERSION,
   /***** other *****/
-  A_NOOP,
+  A_VAR,
   A_VARARG,
   A_FUNCTION,
-  A_STRING_LITERAL,
 };
 
 struct node {
