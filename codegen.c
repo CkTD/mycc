@@ -84,6 +84,8 @@ static void gen_iconst(Node n) {
 }
 
 static void gen_load(Type ty) {
+  ty = unqual(ty);
+
   if (is_array(ty))  // for array, the address is it's value
     return;
 
@@ -103,6 +105,8 @@ static void gen_load(Type ty) {
 }
 
 static void gen_store(Type ty) {
+  ty = unqual(ty);
+
   fprintf(stdout, "\tpopq\t%%rax\n");
   fprintf(stdout, "\tpopq\t%%rdi\n");
   if (ty == chartype || ty == uchartype)
@@ -199,13 +203,13 @@ static void gen_conversion(Node n) {
   gen_expr(n->body);
 
   // for now,  we only have scaler type
-  int src_size = is_array(n->body->type) ? 8 : n->body->type->size;
-  if (src_size < n->type->size) {
+  int src_size = is_array(n->body->type) ? 8 : unqual(n->body->type)->size;
+  int dst_size = unqual(n->type)->size;
+  if (src_size < dst_size) {
     fprintf(stdout, "\tpopq\t%%rax\n");
     fprintf(stdout, "\tmov%c%c%c\t%%%s, %%%s\n",
             is_signed(n->body->type) ? 's' : 'z', size_suffix(src_size),
-            size_suffix(n->type->size), regs(src_size, RAX),
-            regs(n->type->size, RAX));
+            size_suffix(dst_size), regs(src_size, RAX), regs(dst_size, RAX));
     fprintf(stdout, "\tpushq\t%%rax\n");
   }
 }
@@ -647,7 +651,7 @@ static void gen_stat(Node n) {
 static void handle_lvars(Node n) {
   int offset = 0;
   for (Node v = n->locals; v; v = v->next) {
-    offset += v->type->size;
+    offset += unqual(v->type)->size;
     v->offset = offset;
   }
   if (offset % 8) {
@@ -680,12 +684,13 @@ static void gen_func(Node globals) {
       Node v = node->body;
       if (i < 6)
         fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
-                size_suffix(v->type->size), regs(v->type->size, i), v->offset);
+                size_suffix(unqual(v->type)->size),
+                regs(unqual(v->type)->size, i), v->offset);
       else {
         fprintf(stdout, "\tmovq\t%d(%%rbp), %%rax\n", 8 * (i - 6) + 16);
         fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
-                size_suffix(v->type->size), regs(v->type->size, RAX),
-                v->offset);
+                size_suffix(unqual(v->type)->size),
+                regs(unqual(v->type)->size, RAX), v->offset);
       }
       i++;
     }

@@ -72,7 +72,8 @@ static Node mkcvs(Type t, Node body) {
     return body;
 
   Node n = mkaux(A_CONVERSION, body);
-  // body->type -> type
+  n->type = t;
+
   if (is_ptr(t) && is_ptr(body->type)) {
     if (!is_ptr_compatiable(t, body->type))
       warn("convert between incompatiable pointers");
@@ -81,7 +82,7 @@ static Node mkcvs(Type t, Node body) {
     warn("convert between pointer and integeral types");
   else if (!is_integer(t) || !is_integer(body->type))
     error("not implemented: what type?");
-  n->type = t;
+
   return n;
 }
 
@@ -92,7 +93,10 @@ static Node mkcvs(Type t, Node body) {
 //     A_SIZE_OF
 static Node mkunary(int kind, Node left) {
   Node n = mknode(kind);
-  n->left = left;
+  n->left = (kind == A_ADDRESS_OF || kind == A_POSTFIX_INC ||
+             kind == A_POSTFIX_DEC || kind == A_SIZE_OF)
+                ? left
+                : mkcvs(unqual(left->type), left);
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.3.2
   if (kind == A_ADDRESS_OF) {
@@ -144,12 +148,15 @@ static Node mkunary(int kind, Node left) {
     if (!is_lvalue(n->left) ||
         !(is_arithmetic(n->left->type) || is_ptr(n->left->type)))
       error("invalid operand");
+    if (is_const(n->left->type))
+      error("inc/dec const");
+    n->left = mkcvs(unqual(n->left->type), left);
     n->type = n->left->type;
     return mkcvs(integral_promote(n->type), n);
   }
 
   if (kind == A_SIZE_OF) {
-    Node s = mkicons(n->left->type->size);
+    Node s = mkicons(unqual(n->left->type)->size);
     s->type = uinttype;
     return s;
   }
@@ -177,21 +184,38 @@ static Type usual_arithmetic_conversions(Node node) {
 //     A_MUL, A_DIV
 static Node mkbinary(int kind, Node left, Node right) {
   Node n = mknode(kind);
-  n->left = left;
-  n->right = right;
+  n->left = (kind == A_ASSIGN || kind == A_INIT)
+                ? left
+                : mkcvs(unqual(left->type), left);
+  n->right = mkcvs(unqual(right->type), right);
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.16
+  if (kind == A_ASSIGN || kind == A_INIT) {
+    if (!is_lvalue(n->left))
+      error("lvalue required as left operand of assignment");
+
+    if (kind == A_ASSIGN) {
+      if (is_const(n->left->type))
+        error("assign to const");
+      if (is_ptr(n->left->type) && is_ptr(n->right->type) &&
+          !is_const(deref_type(n->left->type)) &&
+          is_const(deref_type(n->right->type)))
+        error("assign discards const");
+    }
+
+    n->type = unqual(n->left->type);
+    n->right = mkcvs(n->type, n->right);
+
+    if (kind == A_INIT) {
+      n->kind = A_ASSIGN;
+      n = mkaux(A_EXPR_STAT, n);
+    }
+    return n;
+  }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.17
   if (kind == A_COMMA) {
     n->type = n->right->type;
-    return n;
-  }
-
-  // http://port70.net/~nsz/c/c99/n1256.html#6.5.16
-  if (kind == A_ASSIGN) {
-    if (!is_lvalue(n->left))
-      error("lvalue required as left operand of assignment");
-    n->right = mkcvs(n->left->type, n->right);
-    n->type = n->left->type;
     return n;
   }
 
@@ -297,9 +321,9 @@ static Node mkbinary(int kind, Node left, Node right) {
 
 static Node mkternary(Node cond, Node left, Node right) {
   Node n = mknode(A_TERNARY);
-  n->cond = cond;
-  n->left = left;
-  n->right = right;
+  n->cond = mkcvs(unqual(cond->type), cond);
+  n->left = mkcvs(unqual(left->type), left);
+  n->right = mkcvs(unqual(right->type), right);
 
   if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
     n->type = usual_arithmetic_conversions(n);
@@ -453,8 +477,9 @@ static Node mkstrlit(const char* str) {
 // =======================   Declaration   =======================
 // declaration:    declaration_specifiers
 //                 init_declarator { ',' init_declarator }* ';'
-// declaration_specifiers: { type_specifier }*
+// declaration_specifiers: { type_specifier | type-qualifier }*
 // type_specifier: 'void'|'char'|'int'|'short'|'long'|'unsigned'|'signed'
+// type_qualifier: 'const' | 'volatile' | 'restrict'
 // init_declarator:declarator { '=' expression }?
 // declarator:     {'*'}* identifier { '[' expression ']' }?
 // =======================   Statement   =======================
@@ -575,6 +600,9 @@ enum {
   SPEC_LONG2 = 1 << 5,
   SPEC_SIGNED = 1 << 6,
   SPEC_UNSIGNED = 1 << 7,
+  SPEC_VOLATILE = 1 << 8,
+  SPEC_CONST = 1 << 9,
+  SPEC_RESTRICT = 1 << 10
 };
 
 Type declaration_specifiers() {
@@ -614,6 +642,12 @@ Type declaration_specifiers() {
       if (get_specifier(specifiers, SPEC_SIGNED))
         error("two or more data types in declaration specifiers");
       set_specifier(specifiers, SPEC_SIGNED);
+    } else if (consume(TK_CONST)) {
+      set_specifier(specifiers, SPEC_CONST);
+    } else if (consume(TK_VOLATILE)) {
+      set_specifier(specifiers, SPEC_VOLATILE);
+    } else if (consume(TK_RESTRICT)) {
+      set_specifier(specifiers, SPEC_RESTRICT);
     } else
       break;
   }
@@ -677,6 +711,11 @@ Type declaration_specifiers() {
       error("two or more data types in declaration specifiers");
   }
 
+  // cache nothing in register, so all variable is VOLATILE?
+  if (get_specifier(specifiers, SPEC_CONST))
+    ty = const_type(ty);
+  if (get_specifier(specifiers, SPEC_RESTRICT))
+    error("not implemented: restrict");
   return ty;
 }
 
@@ -687,7 +726,7 @@ static Node init_declarator(Type ty) {
     if (is_ptr(ty))
       error("not implemented: initialize array");
     if (current_func)
-      return mkaux(A_EXPR_STAT, mkbinary(A_ASSIGN, n, e));
+      return mkbinary(A_INIT, n, e);
     if (e->kind != A_NUM && e->kind != A_STRING_LITERAL)
       error(
           "global variable can only be initializd by integer constant or "
@@ -859,7 +898,7 @@ static Node comp_stat(int reuse_scope) {
   if (!reuse_scope)
     enter_scope();
   while (t->kind != TK_CLOSING_BRACES) {
-    if (t->kind >= TK_VOID && t->kind <= TK_LONG)
+    if (t->kind >= TK_VOID && t->kind <= TK_RESTRICT)
       last->next = declaration();
     else
       last->next = statement(0);

@@ -71,6 +71,7 @@
     - [ ] operand constrains: null pointer? type qualifer? type compatible?
     - [ ] sizeof type-name
     - [ ] struct/union related operator
+    - [ ] case operator
 - [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [x] init list
 - [ ] Others

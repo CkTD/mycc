@@ -26,6 +26,7 @@ enum {
   //
   TY_POINTER,
   TY_ARRAY,
+  TY_CONST,
 };
 
 extern Type voidtype;
@@ -48,15 +49,21 @@ Type type(int kind, Type base, int size);
 Type ptr_type(Type base);
 Type deref_type(Type ptr);
 Type array_type(Type base, int n);
+Type array_to_ptr(Type a);
+Type const_type(Type t);
+Type unqual(Type t);
+
 int is_ptr(Type t);
 int is_array(Type t);
-Type array_to_ptr(Type a);
 int is_ptr_compatiable(Type a, Type b);
 int is_signed(Type t);
 int is_unsigned(Type t);
 int is_integer(Type t);
 int is_arithmetic(Type t);
 int is_scalar(Type t);
+int is_qual(Type t);
+int is_const(Type t);
+
 Type integral_promote(Type t);
 Type usual_arithmetic_type(Type t1, Type t2);
 
@@ -116,6 +123,9 @@ enum {
   TK_INT,
   TK_SHORT,
   TK_LONG,
+  TK_CONST,
+  TK_VOLATILE,
+  TK_RESTRICT,
   TK_SIZEOF,
   TK_IF,
   TK_ELSE,
@@ -153,6 +163,7 @@ enum {
   A_COMMA,
   // 16 right
   A_ASSIGN,
+  A_INIT,  // init local variable(by assign)
   A_TERNARY,
   // 15 left
   A_L_OR,

@@ -40,23 +40,15 @@ Type ptr_type(Type base) {
 }
 
 Type deref_type(Type ptr) {
-  if (ptr->kind != TY_POINTER)
+  if (!is_ptr(ptr))
     error("can only dereference a pointer");
-  return ptr->base;
+  return unqual(ptr)->base;
 }
 
 Type array_type(Type base, int n) {
-  if (!base->size)
+  if (!unqual(base)->size)
     error("array of incomplete type");
-  return type(TY_ARRAY, base, n * base->size);
-}
-
-int is_ptr(Type t) {
-  return t->kind == TY_POINTER || is_array(t);
-}
-
-int is_array(Type t) {
-  return t->kind == TY_ARRAY;
+  return type(TY_ARRAY, base, n * unqual(base)->size);
 }
 
 Type array_to_ptr(Type a) {
@@ -65,22 +57,30 @@ Type array_to_ptr(Type a) {
   return ptr_type(a->base);
 }
 
-int is_ptr_compatiable(Type a, Type b) {
-  if (!is_ptr(a) || !is_ptr(b))
-    error("not a pointer type");
-  if (is_array(a))
-    a = array_to_ptr(a);
-  if (is_array(b))
-    b = array_to_ptr(b);
-  return a == b;
+Type const_type(Type t) {
+  return type(TY_CONST, t, 0);
+}
+
+Type unqual(Type t) {
+  return is_qual(t) ? t->base : t;
+}
+
+int is_ptr(Type t) {
+  return unqual(t)->kind == TY_POINTER || is_array(t);
+}
+
+int is_array(Type t) {
+  return t->kind == TY_ARRAY;
 }
 
 int is_signed(Type t) {
-  return t == chartype || t == shorttype || t == inttype || t == longtype;
+  return unqual(t) == chartype || unqual(t) == shorttype ||
+         unqual(t) == inttype || unqual(t) == longtype;
 }
 
 int is_unsigned(Type t) {
-  return t == uchartype || t == ushorttype || t == uinttype || t == ulongtype;
+  return unqual(t) == uchartype || unqual(t) == ushorttype ||
+         unqual(t) == uinttype || unqual(t) == ulongtype;
 }
 
 int is_integer(Type t) {
@@ -95,7 +95,27 @@ int is_scalar(Type t) {
   return is_arithmetic(t) || is_ptr(t);
 }
 
+int is_qual(Type t) {
+  return t->kind == TY_CONST;
+}
+
+int is_const(Type t) {
+  return t->kind == TY_CONST;
+}
+
+int is_ptr_compatiable(Type a, Type b) {
+  if (!is_ptr(a) || !is_ptr(b))
+    error("not a pointer type");
+  if (is_array(a))
+    a = array_to_ptr(a);
+  if (is_array(b))
+    b = array_to_ptr(b);
+  return unqual(a) == unqual(b);
+}
+
 Type integral_promote(Type t) {
+  t = unqual(t);
+
   if (!is_integer(t))
     return t;
 
@@ -105,8 +125,8 @@ Type integral_promote(Type t) {
 }
 
 Type usual_arithmetic_type(Type t1, Type t2) {
-  t1 = integral_promote(t1);
-  t2 = integral_promote(t2);
+  t1 = integral_promote(unqual(t1));
+  t2 = integral_promote(unqual(t2));
   if (t1 == t2)
     return t1;
 
