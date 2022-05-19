@@ -481,7 +481,9 @@ static Node mkstrlit(const char* str) {
 // type_specifier: 'void'|'char'|'int'|'short'|'long'|'unsigned'|'signed'
 // type_qualifier: 'const' | 'volatile' | 'restrict'
 // init_declarator:declarator { '=' expression }?
-// declarator:     {'*'}* identifier { '[' expression ']' }?
+// declarator:     pointer direct_declarator
+// pointer:        { '*' { type_qualifier }* }*
+// direct_declarator: identifier { '[' expression ']' }?
 // =======================   Statement   =======================
 // statement:      expr_stat | comp_stat
 //                 selection-stat | iteration-stat | jump_stat
@@ -518,9 +520,12 @@ static Node mkstrlit(const char* str) {
 
 static Node trans_unit();
 static Node declaration();
+static Type declaration_specifiers();
 static Node init_declarator(Type ty);  // scope????
 static Node declarator(Type ty);
-static Type declaration_specifiers();
+static Type pointer(Type ty);
+static Node direct_declarator(Type ty);
+static Type array_declarator(Type base);
 static Node function();
 static Node param_list();
 static Node statement(int reuse_scope);
@@ -737,10 +742,43 @@ static Node init_declarator(Type ty) {
   return NULL;
 }
 
-static Type array_postfix(Type base) {
+static Node declarator(Type ty) {
+  return direct_declarator(pointer(ty));
+}
+
+static Type pointer(Type ty) {
+  while (consume(TK_STAR)) {
+    ty = ptr_type(ty);
+    int q_const = 0, q_restrict = 0;
+    for (;;) {
+      if (consume(TK_CONST))
+        q_const = 1;
+      else if (consume(TK_VOLATILE))
+        ;
+      else if (consume(TK_RESTRICT))
+        q_restrict = 1;
+      else {
+        if (q_restrict)
+          error("not implemented: restrict pointer");
+        if (q_const)
+          ty = const_type(ty);
+        break;
+      }
+    }
+  }
+  return ty;
+}
+
+static Node direct_declarator(Type ty) {
+  const char* name = expect(TK_IDENT)->name;
+  ty = array_declarator(ty);
+  return current_func ? mklvar(name, ty) : mkgvar(name, ty);
+}
+
+static Type array_declarator(Type base) {
   if (consume(TK_OPENING_BRACKETS)) {
     if (consume(TK_CLOSING_BRACKETS))
-      return array_type(array_postfix(base), 0);
+      return array_type(array_declarator(base), 0);
 
     Node n = expression();
     expect(TK_CLOSING_BRACKETS);
@@ -748,22 +786,9 @@ static Type array_postfix(Type base) {
       error("not implemented: non integer constant array length");
     if (n->intvalue == 0)
       error("array size shall greater than zeror");
-    return array_type(array_postfix(base), n->intvalue);
+    return array_type(array_declarator(base), n->intvalue);
   }
   return base;
-}
-
-static Node declarator(Type ty) {
-  // ptr
-  while (ty && consume(TK_STAR))
-    ty = ptr_type(ty);
-
-  const char* name = expect(TK_IDENT)->name;
-
-  // array
-  ty = array_postfix(ty);
-
-  return current_func ? mklvar(name, ty) : mkgvar(name, ty);
 }
 
 static int protos_compatitable(Node p1, Node p2) {
@@ -777,9 +802,7 @@ static int protos_compatitable(Node p1, Node p2) {
 }
 
 static Node function() {
-  Type ty = declaration_specifiers();
-  while (consume(TK_STAR))
-    ty = ptr_type(ty);
+  Type ty = pointer(declaration_specifiers());
 
   const char* name = expect(TK_IDENT)->name;
 
