@@ -48,7 +48,9 @@ Type deref_type(Type ptr) {
 Type array_type(Type base, int n) {
   if (!unqual(base)->size)
     error("array of incomplete type");
-  return type(TY_ARRAY, base, n * unqual(base)->size);
+  Type t = type(TY_ARRAY, base, n * unqual(base)->size);
+  t->n = n;
+  return t;
 }
 
 Type array_to_ptr(Type a) {

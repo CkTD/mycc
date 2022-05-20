@@ -27,6 +27,7 @@ enum {
   TY_POINTER,
   TY_ARRAY,
   TY_CONST,
+  TY_PLACEHOLDER,
 };
 
 extern Type voidtype;
@@ -43,6 +44,8 @@ struct type {
   int kind;
   int size;
   Type base;
+
+  int n;  // for array, the array length
 };
 
 Type type(int kind, Type base, int size);

@@ -36,16 +36,21 @@ static Token consume(int kind) {
  * create AST Node *
  *******************/
 
+// http://port70.net/~nsz/c/c99/n1256.html#6.3.2.1p1
 static int is_lvalue(Node node) {
   switch (node->kind) {
     case A_VAR:
-      return !is_array(node->type);
     case A_DEFERENCE:
     case A_ARRAY_SUBSCRIPTING:
       return 1;
     default:
       return 0;
   }
+}
+
+static int is_modifiable_lvalue(Node node, int ignore_qual) {
+  Type t = ignore_qual ? unqual(node->type) : node->type;
+  return is_lvalue(node) && !is_const(t) && !is_array(t);
 }
 
 static Node mknode(int kind) {
@@ -145,11 +150,9 @@ static Node mkunary(int kind, Node left) {
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.4
   if (kind == A_POSTFIX_INC || kind == A_POSTFIX_DEC) {
-    if (!is_lvalue(n->left) ||
+    if (!is_modifiable_lvalue(n->left, 0) ||
         !(is_arithmetic(n->left->type) || is_ptr(n->left->type)))
       error("invalid operand");
-    if (is_const(n->left->type))
-      error("inc/dec const");
     n->left = mkcvs(unqual(n->left->type), left);
     n->type = n->left->type;
     return mkcvs(integral_promote(n->type), n);
@@ -191,12 +194,10 @@ static Node mkbinary(int kind, Node left, Node right) {
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.16
   if (kind == A_ASSIGN || kind == A_INIT) {
-    if (!is_lvalue(n->left))
-      error("lvalue required as left operand of assignment");
+    if (!is_modifiable_lvalue(n->left, kind == A_INIT))
+      error("invalid left operand of assignment");
 
     if (kind == A_ASSIGN) {
-      if (is_const(n->left->type))
-        error("assign to const");
       if (is_ptr(n->left->type) && is_ptr(n->right->type) &&
           !is_const(deref_type(n->left->type)) &&
           is_const(deref_type(n->right->type)))
@@ -471,19 +472,23 @@ static Node mkstrlit(const char* str) {
 
 // trans_unit:     { func_def | declaration }*
 // =======================   Function DEF   =======================
-// func_def:       declaration_specifiers identifier '(' param_list ')'
-// comp_stat param_list:     param_declaration { ',' param_declaration }
-// param_declaration: { declaration_specifiers }+ identifier
-// =======================   Declaration   =======================
-// declaration:    declaration_specifiers
-//                 init_declarator { ',' init_declarator }* ';'
-// declaration_specifiers: { type_specifier | type-qualifier }*
-// type_specifier: 'void'|'char'|'int'|'short'|'long'|'unsigned'|'signed'
-// type_qualifier: 'const' | 'volatile' | 'restrict'
-// init_declarator:declarator { '=' expression }?
-// declarator:     pointer direct_declarator
-// pointer:        { '*' { type_qualifier }* }*
-// direct_declarator: identifier { '[' expression ']' }?
+// func_def:               declaration_specifiers declarator comp_stat <---+
+// =======================   Declaration   =======================         |
+// declaration:            declaration_specifiers                          |
+//                         init_declarator { ',' init_declarator }* ';'    |
+// declaration_specifiers: { type_specifier | type-qualifier }*            |
+// type_specifier:         { 'void' | 'char' | 'int' | 'short' |           |
+//                         'long' | 'unsigned'|'signed' }                  |
+// type_qualifier:         { 'const' | 'volatile' | 'restrict' }           |
+// init_declarator:        declarator { '=' expression }? -----------------+
+// declarator:             pointer? direct_declarator suffix_declarator*
+// pointer:                { '*' { type_qualifier }* }*
+// direct_declarator:      '(' declarator ')' |  identifier
+// suffix_declarator:      array_declarator | function_declarator
+// array_declarator:       '[' expression ']'
+// function_declarator:    '(' { parameter_list }* ')'
+// parameter_list:         parameter_declaration { ',' parameter_declaration }*
+// parameter_declaration:  declaration_specifiers declarator
 // =======================   Statement   =======================
 // statement:      expr_stat | comp_stat
 //                 selection-stat | iteration-stat | jump_stat
@@ -522,10 +527,11 @@ static Node trans_unit();
 static Node declaration();
 static Type declaration_specifiers();
 static Node init_declarator(Type ty);  // scope????
-static Node declarator(Type ty);
+static Type declarator(Type ty, const char** name);
 static Type pointer(Type ty);
-static Node direct_declarator(Type ty);
+static Type direct_declarator(Type ty, const char** name);
 static Type array_declarator(Type base);
+static Type function_declarator(Type ty);
 static Node function();
 static Node param_list();
 static Node statement(int reuse_scope);
@@ -579,7 +585,7 @@ static Node trans_unit() {
 
 static Node declaration() {
   Type ty = declaration_specifiers();
-  struct node head = {};
+  struct node head = {0};
   Node last = &head;
   last->next = init_declarator(ty);
   while (last->next)
@@ -725,10 +731,12 @@ Type declaration_specifiers() {
 }
 
 static Node init_declarator(Type ty) {
-  Node n = declarator(ty);
+  const char* name = NULL;
+  ty = declarator(ty, &name);
+  Node n = current_func ? mklvar(name, ty) : mkgvar(name, ty);
   if (consume(TK_EQUAL)) {
     Node e = assign_expr();
-    if (is_ptr(ty))
+    if (is_array(ty))
       error("not implemented: initialize array");
     if (current_func)
       return mkbinary(A_INIT, n, e);
@@ -742,8 +750,41 @@ static Node init_declarator(Type ty) {
   return NULL;
 }
 
-static Node declarator(Type ty) {
-  return direct_declarator(pointer(ty));
+// declarator:             pointer? direct_declarator suffix_declarator*
+// pointer:                { '*' { type_qualifier }* }*
+// direct_declarator:      '(' declarator ')' |  identifier
+// suffix_declarator:      array_declarator | function_declarator
+// array_declarator:       '[' expression ']'
+// function_declarator:    '(' { parameter_list }* ')'
+// parameter_list:         parameter_declaration { ',' parameter_declaration }*
+// parameter_declaration:  declaration_specifiers declarator
+
+static Type placeholdertype = &(struct type){TY_PLACEHOLDER, -1};
+
+// replace placeholder type by real base type
+static Type construct_type(Type base, Type ty) {
+  if (ty == placeholdertype)
+    return base;
+  if (is_array(ty))
+    return array_type(construct_type(base, ty->base), ty->n);
+  if (is_ptr(ty))
+    return ptr_type(construct_type(base, ty->base));
+  else
+    error("can't construct type");
+  return NULL;
+}
+
+static Type declarator(Type base, const char** name) {
+  base = pointer(base);
+
+  Type ty = direct_declarator(placeholdertype, name);
+
+  if (match(TK_OPENING_PARENTHESES))
+    base = function_declarator(base);
+  if (match(TK_OPENING_BRACKETS))
+    base = array_declarator(base);
+
+  return construct_type(base, ty);
 }
 
 static Type pointer(Type ty) {
@@ -769,10 +810,19 @@ static Type pointer(Type ty) {
   return ty;
 }
 
-static Node direct_declarator(Type ty) {
-  const char* name = expect(TK_IDENT)->name;
-  ty = array_declarator(ty);
-  return current_func ? mklvar(name, ty) : mkgvar(name, ty);
+static Type direct_declarator(Type ty, const char** name) {
+  Token tok;
+  if ((tok = consume(TK_IDENT))) {
+    *name = tok->name;
+    return ty;
+  } else if (consume(TK_OPENING_PARENTHESES)) {
+    ty = declarator(ty, name);
+    expect(TK_CLOSING_PARENTHESES);
+    return ty;
+  }
+
+  error("what declarator?");
+  return NULL;
 }
 
 static Type array_declarator(Type base) {
@@ -789,6 +839,12 @@ static Type array_declarator(Type base) {
     return array_type(array_declarator(base), n->intvalue);
   }
   return base;
+}
+// function_declarator:    '(' { parameter_list }* ')'
+// parameter_list:         parameter_declaration { ',' parameter_declaration }*
+// parameter_declaration:  declaration_specifiers declarator
+static Type function_declarator(Type ty) {
+  return NULL;
 }
 
 static int protos_compatitable(Node p1, Node p2) {
@@ -915,7 +971,7 @@ static Node statement(int reuse_scope) {
 }
 
 static Node comp_stat(int reuse_scope) {
-  struct node head = {};
+  struct node head = {0};
   Node last = &head;
   expect(TK_OPENING_BRACES);
   if (!reuse_scope)

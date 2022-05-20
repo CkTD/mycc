@@ -141,9 +141,11 @@ static void gen_addr(Node n) {
 
     if (n->left->kind == A_VAR) {
       gen_addr(n->left);
-      return gen_load(n->left->type);
+      gen_load(n->left->type);
+      return;
     }
-    return gen_expr(n->left);
+    gen_expr(n->left);
+    return;
   }
 
   if (n->kind == A_ARRAY_SUBSCRIPTING) {
@@ -624,23 +626,30 @@ static void gen_stat(Node n) {
         gen_stat(s);
       return;
     case A_IF:
-      return gen_if(n);
+      gen_if(n);
+      return;
     case A_FOR:
-      return gen_for(n);
+      gen_for(n);
+      return;
     case A_DOWHILE:
-      return gen_dowhile(n);
+      gen_dowhile(n);
+      return;
     case A_BREAK:
-      return gen_break(n);
+      gen_break(n);
+      return;
     case A_CONTINUE:
-      return gen_continue(n);
+      gen_continue(n);
+      return;
     case A_RETURN:
-      return gen_return(n);
+      gen_return(n);
+      return;
     case A_EXPR_STAT:
       gen_expr(n->body);
       fprintf(stdout, "\taddq\t$8, %%rsp\n");
       return;
     default:
-      return gen_expr(n);
+      gen_expr(n);
+      return;
   }
 }
 

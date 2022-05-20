@@ -1,7 +1,7 @@
 SRCS=$(wildcard *.c)
 OBJS=$(SRCS:.c=.o)
 DEPS=$(OBJS:.o=.d)
-CFLAGS=-g -Wall -std=c99 #-fsanitize=address,undefined
+CFLAGS=-g -Wall -std=c99 -pedantic -Werror
 
 mycc: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^

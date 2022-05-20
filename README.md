@@ -33,6 +33,7 @@
 
 ## Others
 
+* [How to disable GNU C extensions?](https://stackoverflow.com/a/38940030)
 * [Makefile header dependencies](https://stackoverflow.com/a/30142139)
 
 

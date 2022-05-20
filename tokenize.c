@@ -183,7 +183,7 @@ const char* escape(const char* s) {
 
 Token tokenize(const char* src) {
   p = src;
-  struct token head = {};
+  struct token head = {0};
   Token last = &head;
 
   while (*p) {
