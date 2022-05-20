@@ -27,6 +27,8 @@ enum {
   TY_POINTER,
   TY_ARRAY,
   TY_CONST,
+  TY_FUNCTION,
+  TY_VARARG,
   TY_PLACEHOLDER,
 };
 
@@ -40,12 +42,20 @@ extern Type ushorttype;
 extern Type uinttype;
 extern Type ulongtype;
 
+typedef struct proto* Proto;
+struct proto {
+  Type type;
+  const char* name;
+  Proto next;
+};
+
 struct type {
   int kind;
   int size;
   Type base;
 
-  int n;  // for array, the array length
+  const char* name;
+  Proto proto;
 };
 
 Type type(int kind, Type base, int size);
@@ -53,11 +63,13 @@ Type ptr_type(Type base);
 Type deref_type(Type ptr);
 Type array_type(Type base, int n);
 Type array_to_ptr(Type a);
+Type function_type(Type t, Proto p);
 Type const_type(Type t);
 Type unqual(Type t);
 
 int is_ptr(Type t);
 int is_array(Type t);
+int is_funcion(Type t);
 int is_ptr_compatiable(Type a, Type b);
 int is_signed(Type t);
 int is_unsigned(Type t);

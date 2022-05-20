@@ -733,6 +733,8 @@ Type declaration_specifiers() {
 static Node init_declarator(Type ty) {
   const char* name = NULL;
   ty = declarator(ty, &name);
+  if (is_funcion(ty))
+    return NULL;
   Node n = current_func ? mklvar(name, ty) : mkgvar(name, ty);
   if (consume(TK_EQUAL)) {
     Node e = assign_expr();
@@ -750,27 +752,23 @@ static Node init_declarator(Type ty) {
   return NULL;
 }
 
-// declarator:             pointer? direct_declarator suffix_declarator*
-// pointer:                { '*' { type_qualifier }* }*
-// direct_declarator:      '(' declarator ')' |  identifier
-// suffix_declarator:      array_declarator | function_declarator
-// array_declarator:       '[' expression ']'
-// function_declarator:    '(' { parameter_list }* ')'
-// parameter_list:         parameter_declaration { ',' parameter_declaration }*
-// parameter_declaration:  declaration_specifiers declarator
-
-static Type placeholdertype = &(struct type){TY_PLACEHOLDER, -1};
+static Type placeholdertype =
+    &(struct type){TY_PLACEHOLDER, -1, NULL, "placeholder"};
 
 // replace placeholder type by real base type
 static Type construct_type(Type base, Type ty) {
   if (ty == placeholdertype)
     return base;
   if (is_array(ty))
-    return array_type(construct_type(base, ty->base), ty->n);
+    return array_type(construct_type(base, ty->base),
+                      ty->size / ty->base->size);
   if (is_ptr(ty))
     return ptr_type(construct_type(base, ty->base));
-  else
-    error("can't construct type");
+
+  if (is_funcion(ty))
+    return function_type(construct_type(base, ty->base), ty->proto);
+
+  error("can't construct type");
   return NULL;
 }
 
@@ -840,11 +838,45 @@ static Type array_declarator(Type base) {
   }
   return base;
 }
-// function_declarator:    '(' { parameter_list }* ')'
-// parameter_list:         parameter_declaration { ',' parameter_declaration }*
-// parameter_declaration:  declaration_specifiers declarator
+
+static Proto mkproto(Type type, const char* name) {
+  Proto p = calloc(1, sizeof(struct proto));
+  p->type = type;
+  p->name = name;
+  return p;
+}
+
+static void link_proto(Proto head, Proto p) {
+  while (head->next) {
+    if (p->name && head->next->name == p->name)
+      error("redefinition of parameter %s", p->name);
+    head = head->next;
+  }
+  head->next = p;
+}
+
 static Type function_declarator(Type ty) {
-  return NULL;
+  struct proto head = {0};
+
+  expect(TK_OPENING_PARENTHESES);
+  while (!consume(TK_CLOSING_PARENTHESES)) {
+    if (consume(TK_ELLIPSIS)) {
+      if (!head.next)
+        error("a named paramenter is required before ...");
+      link_proto(&head, mkproto(type(TY_VARARG, NULL, 0), NULL));
+      expect(TK_CLOSING_PARENTHESES);
+      break;
+    }
+
+    const char* name;
+    Type type = declarator(declaration_specifiers(), &name);
+    link_proto(&head, mkproto(type, name));
+
+    if (!match(TK_CLOSING_PARENTHESES))
+      expect(TK_COMMA);
+  }
+
+  return function_type(ty, head.next);
 }
 
 static int protos_compatitable(Node p1, Node p2) {
