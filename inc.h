@@ -236,6 +236,7 @@ enum {
   A_CONTINUE,
   A_RETURN,
   /***** auxiliary *****/
+  A_NOOP,
   A_DLIST,
   A_BLOCK,
   A_EXPR_STAT,

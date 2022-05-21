@@ -70,9 +70,9 @@
             - [ ] octal/hex escape
 - [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
     - [ ] operand constrains: null pointer? type qualifer? type compatible?
-    - [ ] sizeof type-name
+    - [x] sizeof type-name
     - [ ] struct/union related operator
-    - [ ] case operator
+    - [ ] cast operator
 - [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [x] init list
 - [ ] Others

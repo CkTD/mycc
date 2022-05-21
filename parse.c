@@ -32,6 +32,9 @@ static Token consume(int kind) {
   return NULL;
 }
 
+int match_type_spec() {
+  return t->kind >= TK_VOID && t->kind <= TK_RESTRICT;
+}
 /*******************
  * create AST Node *
  *******************/
@@ -483,12 +486,13 @@ static Node mkstrlit(const char* str) {
 // init_declarator:        declarator { '=' expression }? -----------------+
 // declarator:             pointer? direct_declarator suffix_declarator*
 // pointer:                { '*' { type_qualifier }* }*
-// direct_declarator:      '(' declarator ')' |  identifier
+// direct_declarator:      '(' declarator ')' |  identifier | Empty
 // suffix_declarator:      array_declarator | function_declarator
 // array_declarator:       '[' expression ']'
 // function_declarator:    '(' { parameter_list }* ')'
 // parameter_list:         parameter_declaration { ',' parameter_declaration }*
 // parameter_declaration:  declaration_specifiers declarator
+// type_name:              declaration_specifiers declarator
 // =======================   Statement   =======================
 // statement:      expr_stat | comp_stat
 //                 selection-stat | iteration-stat | jump_stat
@@ -532,6 +536,7 @@ static Type pointer(Type ty);
 static Type direct_declarator(Type ty, const char** name);
 static Type array_declarator(Type base);
 static Type function_declarator(Type ty);
+static Type type_name();
 static Node function();
 static Node param_list();
 static Node statement(int reuse_scope);
@@ -731,8 +736,11 @@ Type declaration_specifiers() {
 }
 
 static Node init_declarator(Type ty) {
+  (void)type_name;
   const char* name = NULL;
   ty = declarator(ty, &name);
+  if (!name)
+    error("identifier name required in declarator");
   if (is_funcion(ty))
     return NULL;
   Node n = current_func ? mklvar(name, ty) : mkgvar(name, ty);
@@ -772,6 +780,12 @@ static Type construct_type(Type base, Type ty) {
   return NULL;
 }
 
+// We can't parse an abstract function type (function declaration without name).
+// The parenthese is ambiguous(complicated direct_declarator or function
+// declarator suffix). For example, in "int *(int);", the '(' may be parsed as
+// a complicated direct_declarator, however it should be a suffix indicate a
+// function declarator. Maybe this kind of decalration is meaningless? It not a
+// problem for function pointer, for example: "int (*)(int,...)"
 static Type declarator(Type base, const char** name) {
   base = pointer(base);
 
@@ -818,9 +832,7 @@ static Type direct_declarator(Type ty, const char** name) {
     expect(TK_CLOSING_PARENTHESES);
     return ty;
   }
-
-  error("what declarator?");
-  return NULL;
+  return ty;
 }
 
 static Type array_declarator(Type base) {
@@ -868,7 +880,7 @@ static Type function_declarator(Type ty) {
       break;
     }
 
-    const char* name;
+    const char* name = NULL;
     Type type = declarator(declaration_specifiers(), &name);
     link_proto(&head, mkproto(type, name));
 
@@ -877,6 +889,15 @@ static Type function_declarator(Type ty) {
   }
 
   return function_type(ty, head.next);
+}
+
+static Type type_name() {
+  Type ty = declaration_specifiers();
+  const char* name = NULL;
+  ty = declarator(ty, &name);
+  if (name)
+    error("type name required");
+  return ty;
 }
 
 static int protos_compatitable(Node p1, Node p2) {
@@ -1009,7 +1030,7 @@ static Node comp_stat(int reuse_scope) {
   if (!reuse_scope)
     enter_scope();
   while (t->kind != TK_CLOSING_BRACES) {
-    if (t->kind >= TK_VOID && t->kind <= TK_RESTRICT)
+    if (match_type_spec())
       last->next = declaration();
     else
       last->next = statement(0);
@@ -1276,8 +1297,18 @@ static Node unary_expr() {
     Node u = unary_expr();
     return mkbinary(A_ASSIGN, u, mkbinary(A_SUB, u, mkicons(1)));
   }
-  if (consume(TK_SIZEOF))
+  if (consume(TK_SIZEOF)) {
+    Token back = t;
+    if (consume(TK_OPENING_PARENTHESES) && match_type_spec()) {
+      Node u = mknode(A_NOOP);
+      u->type = type_name();
+      expect(TK_CLOSING_PARENTHESES);
+      return mkunary(A_SIZE_OF, u);
+    }
+    t = back;
     return mkunary(A_SIZE_OF, unary_expr());
+  }
+
   return postfix_expr();
 }
 
