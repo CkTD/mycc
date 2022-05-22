@@ -70,7 +70,6 @@ Type unqual(Type t);
 int is_ptr(Type t);
 int is_array(Type t);
 int is_funcion(Type t);
-int is_ptr_compatiable(Type a, Type b);
 int is_signed(Type t);
 int is_unsigned(Type t);
 int is_integer(Type t);
@@ -78,9 +77,11 @@ int is_arithmetic(Type t);
 int is_scalar(Type t);
 int is_qual(Type t);
 int is_const(Type t);
-
+int is_compatible_type(Type t1, Type t2);
+Type composite_type(Type t1, Type t2);
 Type integral_promote(Type t);
 Type usual_arithmetic_type(Type t1, Type t2);
+Type default_argument_promoe(Type t);
 
 /*************
  * tokenize  *
@@ -302,10 +303,9 @@ struct node {
 
   // A_FUNC_DEF
   Node globals;
-  Node protos;
+  Node params;
   Node locals;
   int stack_size;
-  int is_function;
 };
 
 #define list_for_each(head, node) \

@@ -157,14 +157,63 @@ int is_const(Type t) {
   return t->kind == TY_CONST;
 }
 
-int is_ptr_compatiable(Type a, Type b) {
-  if (!is_ptr(a) || !is_ptr(b))
-    error("not a pointer type");
-  if (is_array(a))
-    a = array_to_ptr(a);
-  if (is_array(b))
-    b = array_to_ptr(b);
-  return unqual(a) == unqual(b);
+int is_compatible_type(Type t1, Type t2) {
+  if (t1 == t2)
+    return 1;
+
+  if (t1->kind != t2->kind)
+    return 0;
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.7.3p9
+  if (is_qual(t1))
+    return (is_const(t1) ^ is_const(t2))
+               ? 0
+               : is_compatible_type(unqual(t1), unqual(t2));
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2p6
+  if (is_array(t1))
+    return t1->size == t2->size && is_compatible_type(t1->base, t2->base);
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.7.5.1p2
+  if (is_ptr(t1))
+    return is_compatible_type(t1->base, t2->base);
+
+  // http://port70.net/~nsz/c/c99/n1256.html#6.7.5.3p15
+  if (is_funcion(t1)) {
+    if (!is_compatible_type(t1->base, t2->base))
+      return 0;
+
+    if (!t1->proto && !t2->proto)
+      return 1;
+
+    if (t1->proto && t2->proto) {
+      Proto p1 = t1->proto, p2 = t2->proto;
+      for (; p1 && p2; p1 = p1->next, p2 = p2->next) {
+        if (!is_compatible_type(p1->type, p2->type))
+          return 0;
+      }
+      return !p1 && !p2;
+    }
+
+    for (Proto p = t1->proto ? t1->proto : t2->proto; p; p = p->next) {
+      // a parameter list with an ellipsis cannot match an empty parameter name
+      // list declaration
+      if (p->type->kind == TY_VARARG)
+        return 0;
+      // an argument type that has a default promotion cannot match an empty
+      // parameter name list declaration
+      if (!is_compatible_type(default_argument_promoe(p->type), p->type))
+        return 0;
+    }
+    return 1;
+  }
+
+  error("what kind of type?");
+  return 0;
+}
+
+Type composite_type(Type t1, Type t2) {
+  return t1;
 }
 
 Type integral_promote(Type t) {
@@ -199,4 +248,9 @@ Type usual_arithmetic_type(Type t1, Type t2) {
 
   error("usual arithemtic conversion failed");
   return NULL;
+}
+
+Type default_argument_promoe(Type t) {
+  // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p6
+  return integral_promote(t);
 }

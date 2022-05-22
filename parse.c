@@ -83,7 +83,7 @@ static Node mkcvs(Type t, Node body) {
   n->type = t;
 
   if (is_ptr(t) && is_ptr(body->type)) {
-    if (!is_ptr_compatiable(t, body->type))
+    if (!is_compatible_type(t, body->type))
       warn("convert between incompatiable pointers");
     return body;
   } else if (is_ptr(t) || is_ptr(body->type))
@@ -294,7 +294,7 @@ static Node mkbinary(int kind, Node left, Node right) {
       return n;
     }
     if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
-      if (!is_ptr_compatiable(n->left->type, n->right->type))
+      if (!is_compatible_type(n->left->type, n->right->type))
         error("invalid operands to binary, incompatiable pointer");
       n->type = inttype;
       return mkbinary(A_DIV, n, mkicons(n->left->type->base->size));
@@ -335,7 +335,7 @@ static Node mkternary(Node cond, Node left, Node right) {
   }
 
   if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
-    if (!is_ptr_compatiable(n->left->type, n->right->type))
+    if (!is_compatible_type(n->left->type, n->right->type))
       error("pointer type mismatch");
     n->type = n->left->type;
     if (is_array(n->type))
@@ -424,7 +424,7 @@ static Node find_var(const char* name) {
   }
 
   v = find_global(name);
-  if (v && v->is_function)
+  if (v && v->kind == A_FUNCTION)
     error("%s is a function, variable expected", name);
   return v;
 }
@@ -457,6 +457,27 @@ static Node mkgvar(const char* name, Type ty) {
   n->is_global = 1;
   n->next = globals;
   globals = n;
+  return n;
+}
+
+static Node mkfunc(const char* name, Type ty) {
+  if (match(TK_OPENING_BRACES) && !ty->proto) {
+    ty->proto = calloc(1, sizeof(struct proto));
+    ty->proto->type = voidtype;
+  }
+
+  Node n = find_global(name);
+  if (!n) {
+    n = mknode(A_FUNCTION);
+    n->name = name;
+    n->type = ty;
+    n->next = globals;
+    globals = n;
+  } else {
+    if (!is_compatible_type(n->type, ty))
+      error("conflicting types for function %s", name);
+    n->type = composite_type(n->type, ty);
+  }
   return n;
 }
 
@@ -537,8 +558,7 @@ static Type direct_declarator(Type ty, const char** name);
 static Type array_declarator(Type base);
 static Type function_declarator(Type ty);
 static Type type_name();
-static Node function();
-static Node param_list();
+static Node function(Node f);
 static Node statement(int reuse_scope);
 static Node comp_stat(int reuse_scope);
 static Node if_stat();
@@ -567,37 +587,41 @@ static Node func_call(Node n);
 static Node array_subscripting(Node n);
 static Node variable(Node n);
 
+// current function being parsed
 static Node current_func;
-static int check_next_top_level_item() {
-  Token back = t;
-  declaration_specifiers();
-  while (consume(TK_STAR))
-    ;
-  int is_function = consume(TK_IDENT) && consume(TK_OPENING_PARENTHESES);
-  t = back;
-  return is_function;
-}
 
 static Node trans_unit() {
-  while (t) {
-    if (check_next_top_level_item())  // function
-      function();
-    else  // global variable
-      declaration();
-  }
+  while (t)
+    declaration();
+
   return globals;
 }
 
+// for local declaration(called by comp_stat)
+//    make local variable(return node list for init assign)
+// for global declaration(called by trans_unit)
+//    make global variable(set it init_value member, return NULL)
+//    make function node(return the function node)
+// for function definition(called by trans_unit)
+//    make function node && fill body(return node for the function)
 static Node declaration() {
   Type ty = declaration_specifiers();
+  Node n = init_declarator(ty);
+  if (n && n->kind == A_FUNCTION) {
+    if (match(TK_OPENING_BRACES))
+      return function(n);
+    n = NULL;
+  }
+
   struct node head = {0};
   Node last = &head;
-  last->next = init_declarator(ty);
+  last->next = n;
   while (last->next)
     last = last->next;
   while (!consume(TK_SIMI)) {
     expect(TK_COMMA);
-    last->next = init_declarator(ty);
+    n = init_declarator(ty);
+    last->next = (n && n->kind == A_FUNCTION) ? NULL : n;
     while (last->next)
       last = last->next;
   }
@@ -735,14 +759,19 @@ Type declaration_specifiers() {
   return ty;
 }
 
+// returned value for different kind of declarotor
+//    function:        function node in global
+//    local variable:  nodes for init assign
+//    global variable: NULL
 static Node init_declarator(Type ty) {
-  (void)type_name;
   const char* name = NULL;
   ty = declarator(ty, &name);
   if (!name)
     error("identifier name required in declarator");
+
   if (is_funcion(ty))
-    return NULL;
+    return mkfunc(name, ty);
+
   Node n = current_func ? mklvar(name, ty) : mkgvar(name, ty);
   if (consume(TK_EQUAL)) {
     Node e = assign_expr();
@@ -900,79 +929,24 @@ static Type type_name() {
   return ty;
 }
 
-static int protos_compatitable(Node p1, Node p2) {
-  Node n1 = p1->next, n2 = p2->next;
-  for (; n1 != p1 && n2 != p2; n1 = n1->next, n2 = n2->next) {
-    if (n1->body->type != n2->body->type)
-      return 0;
-  }
-
-  return n1 == p1 && n2 == p2;
-}
-
-static Node function() {
-  Type ty = pointer(declaration_specifiers());
-
-  const char* name = expect(TK_IDENT)->name;
+static Node function(Node f) {
+  if (f->body)
+    error("redefinition of function %s", f->name);
 
   enter_scope();
   locals = NULL;
-  Node protos = param_list();
-
-  Node n = find_global(name);
-  if (n) {  // the function has been declared
-    if (!n->is_function || n->body) {
-      error("redefine symbol %s", name);
-    } else {
-      if (n->type != ty || !protos_compatitable(protos, n->protos))
-        error("conflict types for %s", name);
-      n->protos = protos;
-    }
-  } else {
-    n = mknode(A_FUNCTION);
-    n->name = name;
-    n->type = ty;
-    n->protos = protos;
-    n->is_function = 1;
-    n->next = globals;
-    globals = n;
-  }
-
-  if (consume(TK_SIMI)) {  // function declaration whith out definition
-  } else {
-    current_func = n;
-    n->body = comp_stat(1);
-    n->locals = locals;
-    current_func = NULL;
-  }
-
+  // paramenter
+  f->params = mklist(NULL);
+  if (f->type->proto->type != voidtype)
+    for (Proto p = f->type->proto; p; p = p->next)
+      list_insert(f->params, mklist(mklvar(p->name, p->type)));
+  current_func = f;
+  f->body = comp_stat(1);
+  f->locals = locals;
+  current_func = NULL;
   exit_scope();
 
   return NULL;
-}
-
-Node param_list() {
-  Node head = mklist(NULL);
-  expect(TK_OPENING_PARENTHESES);
-  while (!consume(TK_CLOSING_PARENTHESES)) {
-    if (consume(TK_ELLIPSIS)) {
-      if (list_empty(head))
-        error("a named paramenter is required before...");
-      list_insert(head, mklist(mknode(A_VARARG)));
-      expect(TK_CLOSING_PARENTHESES);
-      break;
-    }
-
-    Type ty = declaration_specifiers();
-    while (consume(TK_STAR))
-      ty = ptr_type(ty);
-    const char* name = expect(TK_IDENT)->name;
-    list_insert(head, mklist(mklvar(name, ty)));
-
-    if (!match(TK_CLOSING_PARENTHESES))
-      expect(TK_COMMA);
-  }
-  return head;
 }
 
 static Node statement(int reuse_scope) {
@@ -1014,7 +988,7 @@ static Node statement(int reuse_scope) {
     Node n = mknode(A_RETURN);
     if (consume(TK_SIMI))
       return n;
-    n->body = mkcvs(current_func->type, expression());
+    n->body = mkcvs(current_func->type->base, expression());
     expect(TK_SIMI);
     return n;
   }
@@ -1369,30 +1343,30 @@ static Node func_call(Node n) {
   n = mknode(A_FUNC_CALL);
   Node f = find_global(name);
 
-  if (f && !f->is_function)
+  if (f && !(f->kind == A_FUNCTION))
     error("called object \"%s\" is not a function", name);
 
   n->callee_name = name;
-  n->type = f ? f->type : inttype;  //  implicit function declaration
+  n->type = f ? f->type->base : inttype;  //  implicit function declaration
 
   // function argument lists
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p6
   Node args = mklist(NULL);
-  Node cur_param = (f && f->protos) ? f->protos->next : NULL;
+  Proto cur_param = f ? f->type->proto : NULL;
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
     Node arg = assign_expr();
 
-    if (!f || !f->protos) {  // function without prototype
+    if (!f || !f->type->proto) {  // function without prototype
       arg = mkcvs(integral_promote(arg->type), arg);
     } else {  // function with porotype
-      if (cur_param == f->protos) {
+      if (!cur_param) {
         warn("too many arguments to function %s", f->name);
       } else {
-        if (cur_param->body->kind == A_VARARG) {
+        if (cur_param->type->kind == TY_VARARG) {
           arg = mkcvs(integral_promote(arg->type), arg);
         } else {
-          arg = mkcvs(cur_param->body->type, arg);
+          arg = mkcvs(cur_param->type, arg);
           cur_param = cur_param->next;
         }
       }
