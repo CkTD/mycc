@@ -82,15 +82,21 @@ static Node mkcvs(Type t, Node body) {
   Node n = mkaux(A_CONVERSION, body);
   n->type = t;
 
-  if (is_ptr(t) && is_ptr(body->type)) {
-    if (!is_compatible_type(t, body->type))
-      warn("convert between incompatiable pointers");
-    return body;
-  } else if (is_ptr(t) || is_ptr(body->type))
-    warn("convert between pointer and integeral types");
-  else if (!is_integer(t) || !is_integer(body->type))
-    error("not implemented: what type?");
+  return n;
+}
 
+// usual arithmetic conversions for binary expressions
+static Type usual_arithmetic_conversions(Node node) {
+  Type t = usual_arithmetic_type(node->left->type, node->right->type);
+  node->left = mkcvs(t, node->left);
+  node->right = mkcvs(t, node->right);
+  return t;
+}
+
+static Node unqual_array_to_ptr(Node n) {
+  n = mkcvs(unqual(n->type), n);
+  if (is_array(n->type))
+    n = mkcvs(array_to_ptr(n->type), n);
   return n;
 }
 
@@ -104,7 +110,7 @@ static Node mkunary(int kind, Node left) {
   n->left = (kind == A_ADDRESS_OF || kind == A_POSTFIX_INC ||
              kind == A_POSTFIX_DEC || kind == A_SIZE_OF)
                 ? left
-                : mkcvs(unqual(left->type), left);
+                : unqual_array_to_ptr(left);
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.3.2
   if (kind == A_ADDRESS_OF) {
@@ -171,14 +177,6 @@ static Node mkunary(int kind, Node left) {
   return NULL;
 }
 
-// usual arithmetic conversions for binary expressions
-static Type usual_arithmetic_conversions(Node node) {
-  Type t = usual_arithmetic_type(node->left->type, node->right->type);
-  node->left = mkcvs(t, node->left);
-  node->right = mkcvs(t, node->right);
-  return t;
-}
-
 // kind:
 //     A_COMMA
 //     A_ASSIGN
@@ -190,22 +188,28 @@ static Type usual_arithmetic_conversions(Node node) {
 //     A_MUL, A_DIV
 static Node mkbinary(int kind, Node left, Node right) {
   Node n = mknode(kind);
-  n->left = (kind == A_ASSIGN || kind == A_INIT)
-                ? left
-                : mkcvs(unqual(left->type), left);
-  n->right = mkcvs(unqual(right->type), right);
+  n->left =
+      (kind == A_ASSIGN || kind == A_INIT) ? left : unqual_array_to_ptr(left);
+  n->right = unqual_array_to_ptr(right);
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.16
   if (kind == A_ASSIGN || kind == A_INIT) {
     if (!is_modifiable_lvalue(n->left, kind == A_INIT))
       error("invalid left operand of assignment");
-
-    if (kind == A_ASSIGN) {
-      if (is_ptr(n->left->type) && is_ptr(n->right->type) &&
-          !is_const(deref_type(n->left->type)) &&
-          is_const(deref_type(n->right->type)))
-        error("assign discards const");
-    }
+    if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
+    } else if (is_ptr(n->left->type) && n->right->kind == A_NUM &&
+               n->right->intvalue == 0) {
+      // http://port70.net/~nsz/c/c99/n1256.html#6.3.2.3p3
+    } else if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
+      if (kind == A_ASSIGN) {
+        if (!is_const(deref_type(n->left->type)) &&
+            is_const(deref_type(n->right->type)))
+          error("assign discards const");
+      }
+      if (!is_compatible_type(unqual(n->left->type), n->right->type))
+        error("assign with incompatible type");
+    } else
+      error("assign with incompatible type");
 
     n->type = unqual(n->left->type);
     n->right = mkcvs(n->type, n->right);
@@ -249,6 +253,21 @@ static Node mkbinary(int kind, Node left, Node right) {
   if (kind >= A_EQ && kind <= A_GE) {
     if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
       usual_arithmetic_conversions(n);
+      n->type = inttype;
+      return n;
+    }
+    if (kind >= A_EQ && kind <= A_NE) {
+      if ((is_ptr(n->left->type) &&
+           (n->right->kind == A_NUM && n->right->intvalue == 0)) ||
+          (is_ptr(n->right->type) &&
+           (n->left->kind == A_NUM && n->left->intvalue == 0))) {
+        n->type = inttype;
+        return n;
+      }
+    }
+    if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
+      if (!is_compatible_type(n->left->type, n->right->type))
+        error("incompatible type");
       n->type = inttype;
       return n;
     }
@@ -325,9 +344,9 @@ static Node mkbinary(int kind, Node left, Node right) {
 
 static Node mkternary(Node cond, Node left, Node right) {
   Node n = mknode(A_TERNARY);
-  n->cond = mkcvs(unqual(cond->type), cond);
-  n->left = mkcvs(unqual(left->type), left);
-  n->right = mkcvs(unqual(right->type), right);
+  n->cond = unqual_array_to_ptr(cond);
+  n->left = unqual_array_to_ptr(left);
+  n->right = unqual_array_to_ptr(right);
 
   if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
     n->type = usual_arithmetic_conversions(n);

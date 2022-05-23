@@ -74,7 +74,7 @@
     - [ ] struct/union related operator
     - [ ] cast operator
 - [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
-    - [x] init list
+    - [ ] [initialization](http://port70.net/~nsz/c/c99/n1256.html#6.7.8)
     - [ ] declaration of function without name
 - [ ] Others
     - [x] remove print statement by calling library function "printf"

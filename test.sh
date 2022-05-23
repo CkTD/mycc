@@ -16,7 +16,7 @@ function test {
     prog="$(cat $file)"
 
     # expected output
-    gcc -std=c99 -Wno-implicit-function-declaration -Wno-builtin-declaration-mismatch -o temp.out $file 2>/dev/null
+    gcc -std=c99 -pedantic -Werror -Wno-implicit-function-declaration -Wno-builtin-declaration-mismatch -o temp.out $file 2>/dev/null
     if [[ $? -ne 0 ]]; then
         failed "$file" "can't compile(gcc)"
         return

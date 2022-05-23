@@ -1,7 +1,7 @@
 int main() {
-  short x;
+  unsigned short x;
   x = 65535;
-  int xx;
+  short xx;
   xx = x;
   printf("%d\n", xx);
 

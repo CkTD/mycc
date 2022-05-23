@@ -41,6 +41,7 @@ extern Type uchartype;
 extern Type ushorttype;
 extern Type uinttype;
 extern Type ulongtype;
+extern Type voidptrtype;
 
 typedef struct proto* Proto;
 struct proto {

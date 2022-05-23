@@ -11,6 +11,7 @@ Type uchartype = &(struct type){TY_UCHAR, 1, NULL, "unsigned char"};
 Type ushorttype = &(struct type){TY_USHRT, 2, NULL, "unsigned short"};
 Type uinttype = &(struct type){TY_UINT, 4, NULL, "unsigned int"};
 Type ulongtype = &(struct type){TY_ULONG, 8, NULL, "unsigned long"};
+Type voidptrtype = &(struct type){TY_POINTER, 8, NULL, "void *"};
 
 #define TTSIZE 128
 static struct type_entry {
@@ -77,12 +78,16 @@ Type type(int kind, Type base, int size) {
 }
 
 Type ptr_type(Type base) {
+  if (base == voidtype)
+    return voidptrtype;
   return type(TY_POINTER, base, 8);
 }
 
 Type deref_type(Type ptr) {
   if (!is_ptr(ptr))
     error("can only dereference a pointer");
+  if (unqual(ptr) == voidptrtype)
+    error("dereferencing void * pointer");
   return unqual(ptr)->base;
 }
 
@@ -181,7 +186,8 @@ int is_compatible_type(Type t1, Type t2) {
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.5.1p2
   if (is_ptr(t1))
-    return is_compatible_type(t1->base, t2->base);
+    return t1 == voidptrtype || t2 == voidptrtype ||
+           is_compatible_type(t1->base, t2->base);
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.5.3p15
   if (is_funcion(t1)) {
