@@ -476,7 +476,8 @@ static Node mkfunc(const char* name, Type ty) {
   } else {
     if (!is_compatible_type(n->type, ty))
       error("conflicting types for function %s", name);
-    n->type = composite_type(n->type, ty);
+    n->type =
+        n->body ? composite_type(n->type, ty) : composite_type(ty, n->type);
   }
   return n;
 }
@@ -809,12 +810,15 @@ static Type construct_type(Type base, Type ty) {
   return NULL;
 }
 
+// TODO: FIX THIS
 // We can't parse an abstract function type (function declaration without name).
 // The parenthese is ambiguous(complicated direct_declarator or function
 // declarator suffix). For example, in "int *(int);", the '(' may be parsed as
 // a complicated direct_declarator, however it should be a suffix indicate a
-// function declarator. Maybe this kind of decalration is meaningless? It not a
-// problem for function pointer, for example: "int (*)(int,...)"
+// function declarator.  It not a problem for function pointer, for example:
+// "int (*)(int,...)".
+// This should be supported because:
+//   (http://port70.net/~nsz/c/c99/n1256.html#6.3.2.1p4)
 static Type declarator(Type base, const char** name) {
   base = pointer(base);
 
@@ -888,6 +892,10 @@ static Proto mkproto(Type type, const char* name) {
 }
 
 static void link_proto(Proto head, Proto p) {
+  if ((head->next && head->next->type == voidtype) ||  // other follow void
+      (p->type == voidtype && head->next))             // void is not first
+    error("void must be the only parameter");
+
   while (head->next) {
     if (p->name && head->next->name == p->name)
       error("redefinition of parameter %s", p->name);
@@ -911,6 +919,8 @@ static Type function_declarator(Type ty) {
 
     const char* name = NULL;
     Type type = declarator(declaration_specifiers(), &name);
+    if (is_array(type))
+      type = array_to_ptr(type);
     link_proto(&head, mkproto(type, name));
 
     if (!match(TK_CLOSING_PARENTHESES))
@@ -938,8 +948,11 @@ static Node function(Node f) {
   // paramenter
   f->params = mklist(NULL);
   if (f->type->proto->type != voidtype)
-    for (Proto p = f->type->proto; p; p = p->next)
+    for (Proto p = f->type->proto; p; p = p->next) {
+      if (!p->name)
+        error("omitting parameter name in function definition");
       list_insert(f->params, mklist(mklvar(p->name, p->type)));
+    }
   current_func = f;
   f->body = comp_stat(1);
   f->locals = locals;
@@ -1340,43 +1353,40 @@ static Node func_call(Node n) {
     error("not implemented");
   const char* name = n->name;
 
-  n = mknode(A_FUNC_CALL);
   Node f = find_global(name);
-
   if (f && !(f->kind == A_FUNCTION))
     error("called object \"%s\" is not a function", name);
+  if (!f) {  //  implicit function declaration
+    warn("implicit declaration of function %s", name);
+    f = mkfunc(name, function_type(inttype, NULL));
+  }
 
-  n->callee_name = name;
-  n->type = f ? f->type->base : inttype;  //  implicit function declaration
-
+  n = mknode(A_FUNC_CALL);
+  n->name = name;
+  n->type = f->type->base;
   // function argument lists
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p6
-  Node args = mklist(NULL);
-  Proto cur_param = f ? f->type->proto : NULL;
+  n->args = mklist(NULL);
+  Proto param = f->type->proto;
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
     Node arg = assign_expr();
-
-    if (!f || !f->type->proto) {  // function without prototype
-      arg = mkcvs(integral_promote(arg->type), arg);
-    } else {  // function with porotype
-      if (!cur_param) {
-        warn("too many arguments to function %s", f->name);
-      } else {
-        if (cur_param->type->kind == TY_VARARG) {
-          arg = mkcvs(integral_promote(arg->type), arg);
-        } else {
-          arg = mkcvs(cur_param->type, arg);
-          cur_param = cur_param->next;
-        }
-      }
+    if (is_array(arg->type))
+      arg = mkcvs(array_to_ptr(arg->type), arg);
+    if (!f->type->proto) {
+      arg = mkcvs(default_argument_promoe(arg->type), arg);
+    } else if (!param || param->type == voidtype) {
+      error("too many arguments to function %s", name);
+    } else if (param->type->kind == TY_VARARG) {
+      arg = mkcvs(default_argument_promoe(arg->type), arg);
+    } else {
+      arg = mkcvs(unqual(param->type), arg);
+      param = param->next;
     }
-
-    list_insert(args, mklist(arg));
+    list_insert(n->args, mklist(arg));
     if (!match(TK_CLOSING_PARENTHESES))
       expect(TK_COMMA);
   };
-  n->args = args;
   return n;
 }
 

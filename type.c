@@ -171,8 +171,13 @@ int is_compatible_type(Type t1, Type t2) {
                : is_compatible_type(unqual(t1), unqual(t2));
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2p6
-  if (is_array(t1))
-    return t1->size == t2->size && is_compatible_type(t1->base, t2->base);
+  if (is_array(t1)) {
+    if (!is_compatible_type(t1->base, t2->base))
+      return 0;
+    if (t1->size || t2->size)
+      return t1->size == t2->size;
+    return 1;
+  }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.5.1p2
   if (is_ptr(t1))
@@ -213,6 +218,34 @@ int is_compatible_type(Type t1, Type t2) {
 }
 
 Type composite_type(Type t1, Type t2) {
+  if (!is_compatible_type(t1, t2))
+    error("compose what?");
+  if (is_array(t1)) {
+    if (t1->size)
+      return array_type(composite_type(t1->base, t2->base),
+                        t1->size / t1->base->size);
+    return array_type(composite_type(t1->base, t2->base),
+                      t2->size / t2->base->size);
+  }
+
+  if (is_funcion(t1)) {
+    if (!t1->proto)
+      return function_type(composite_type(t1->base, t2->base), t2->proto);
+    if (!t2->proto)
+      return function_type(composite_type(t1->base, t2->base), t1->proto);
+    struct proto head = {0};
+    Proto last = &head;
+    for (Proto p1 = t1->proto, p2 = t2->proto; p1 && p2;
+         p1 = p1->next, p2 = p2->next) {
+      // a parameter list with an ellipsis cannot match an empty parameter name
+      // list declaration
+      last = last->next = calloc(1, sizeof(struct proto));
+      last->name = p1->name;
+      last->type = composite_type(p1->type, p2->type);
+    }
+    return function_type(composite_type(t1->base, t2->base), head.next);
+  }
+
   return t1;
 }
 

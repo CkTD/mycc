@@ -178,7 +178,7 @@ static void gen_addr(Node n) {
 }
 
 static void gen_funccall(Node n) {
-  fprintf(stdout, "// call function \"%s\"\n", n->callee_name);
+  fprintf(stdout, "// call function \"%s\"\n", n->name);
   Node node;
 
   int nargs = list_length(n->args);
@@ -194,11 +194,11 @@ static void gen_funccall(Node n) {
     fprintf(stdout, "\tpopq\t%%%s\n", regs(8, i));
   }
 
-  fprintf(stdout, "\tcall\t%s\n", n->callee_name);
+  fprintf(stdout, "\tcall\t%s\n", n->name);
   if (nmemargs % 2)
     fprintf(stdout, "\taddq\t$8, %%rsp\n");
   fprintf(stdout, "\tpushq\t%%rax\n");
-  fprintf(stdout, "// ---- call function \"%s\"\n", n->callee_name);
+  fprintf(stdout, "// ---- call function \"%s\"\n", n->name);
 }
 
 static void gen_conversion(Node n) {

@@ -250,19 +250,20 @@ enum {
 
 struct node {
   int kind;
-  // expressions
-  // A_FUNCDEF(return type)
+
+  // for expression, variable and function
   Type type;
+
   // function or variable name
   // string literal label name
+  // callee name
   const char* name;
 
   // linked in compound-statement's body list(statement)
-  // linked in global object list(A_FUNC_DEF, A_VAR)
+  // linked in global object list(A_FUNCTION, A_VAR, A_STRING_LITERAL)
   // linked in local var list(A_VAR)
   // A_DLIST
   Node next;
-
   // A_DLIST
   Node prev;
 
@@ -277,8 +278,8 @@ struct node {
   Node init;
   Node post;
 
-  // A_BLOCK, A_EXPR_STAT, A_EXPR_STAT, A_FUNC_ARG
-  // A_FUNC_DEF, A_WHILE, A_DOWHILE, A_FOR
+  // A_WHILE, A_DOWHILE, A_FOR
+  // A_FUNCTION, A_CONVERSION, A_DLIST, A_EXPR_STAT, A_BLOCK
   Node body;
 
   // A_NUM
@@ -294,14 +295,13 @@ struct node {
   Node init_value;
 
   // A_FUNC_CALL
-  const char* callee_name;
   Node args;
 
   // A_ARRAY_SUBSCRIPTING
   Node array;  // array / pointer
   Node index;
 
-  // A_FUNC_DEF
+  // A_FUNCTION
   Node globals;
   Node params;
   Node locals;
