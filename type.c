@@ -19,30 +19,39 @@ static struct type_entry {
   struct type_entry* next;
 } * type_table[TTSIZE];
 
-static const char* type_name(Type t) {
+const char* type_str(Type t) {
   static char buffer[4096];
   if (t->kind <= 8)
-    return t->name;
+    return t->str;
 
   if (t->kind == TY_POINTER) {
-    sprintf(buffer, "ptr{%s}", t->base->name);
+    sprintf(buffer, "ptr{%s}", t->base->str);
   } else if (t->kind == TY_ARRAY) {
-    sprintf(buffer, "array[%d]{%s}", t->size / t->base->size, t->base->name);
+    sprintf(buffer, "array[%d]{%s}", t->size / t->base->size, t->base->str);
   } else if (t->kind == TY_CONST) {
-    sprintf(buffer, "const{%s}", t->base->name);
+    sprintf(buffer, "const{%s}", t->base->str);
   } else if (t->kind == TY_VARARG) {
     sprintf(buffer, "...");
   } else if (t->kind == TY_FUNCTION) {
     int i = 0;
     Proto p = t->proto;
-    i += sprintf(buffer, "function{%s}{", t->base->name);
+    i += sprintf(buffer, "function{%s}{", t->base->str);
     if (p) {
-      i += sprintf(buffer + i, "%s %s", p->type->name, p->name ? p->name : "");
+      i += sprintf(buffer + i, "%s %s", p->type->str, p->name ? p->name : "");
       p = p->next;
     }
     while (p) {
-      i += sprintf(buffer + i, ",%s %s", p->type->name, p->name ? p->name : "");
+      i += sprintf(buffer + i, ",%s %s", p->type->str, p->name ? p->name : "");
       p = p->next;
+    }
+    sprintf(buffer + i, "}");
+  } else if (t->kind == TY_STRUCT) {
+    int i = 0;
+    Member m = t->member;
+    i += sprintf(buffer, "struct %s{", t->tag ? t->tag : "");
+    while (m) {
+      i += sprintf(buffer + i, "%s %s;", m->type->str, m->name);
+      m = m->next;
     }
     sprintf(buffer + i, "}");
   } else
@@ -53,7 +62,7 @@ static const char* type_name(Type t) {
 
 Type type(int kind, Type base, int size) {
   unsigned h;
-  if (kind != TY_FUNCTION) {
+  if (kind != TY_FUNCTION && kind != TY_STRUCT) {
     h = (kind ^ (unsigned long)base) % TTSIZE;
     for (struct type_entry* i = type_table[h]; i; i = i->next) {
       if (i->t->kind == kind && i->t->base == base && i->t->size == size)
@@ -65,9 +74,8 @@ Type type(int kind, Type base, int size) {
   t->kind = kind;
   t->base = base;
   t->size = size;
-  t->name = type_name(t);
-
-  if (kind != TY_FUNCTION) {
+  if (kind != TY_FUNCTION && kind != TY_STRUCT) {
+    t->str = type_str(t);
     struct type_entry* e = calloc(1, sizeof(struct type_entry));
     e->t = t;
     e->next = type_table[h];
@@ -108,7 +116,7 @@ Type function_type(Type t, Proto p) {
     error("function return what?");
   t = type(TY_FUNCTION, t, 0);
   t->proto = p;
-  t->name = type_name(t);  // add the proto
+  t->str = type_str(t);  // add the proto
   return t;
 }
 
@@ -118,6 +126,20 @@ Type const_type(Type t) {
 
 Type unqual(Type t) {
   return is_qual(t) ? t->base : t;
+}
+
+Type struct_type(Member member, const char* tag) {
+  Type ty = type(TY_STRUCT, NULL, 0);
+  ty->member = member;
+  ty->tag = tag;
+  for (Member m = member; m; m = m->next) {
+    if (m->type->size == 0)
+      error("not implemented");
+    m->offset = ty->size;
+    ty->size += m->type->size;
+  }
+  ty->str = type_str(ty);
+  return ty;
 }
 
 int is_ptr(Type t) {
@@ -160,6 +182,10 @@ int is_qual(Type t) {
 
 int is_const(Type t) {
   return t->kind == TY_CONST;
+}
+
+int is_struct(Type t) {
+  return unqual(t)->kind == TY_STRUCT;
 }
 
 int is_compatible_type(Type t1, Type t2) {

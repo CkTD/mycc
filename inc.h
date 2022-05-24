@@ -30,6 +30,7 @@ enum {
   TY_FUNCTION,
   TY_VARARG,
   TY_PLACEHOLDER,
+  TY_STRUCT,
 };
 
 extern Type voidtype;
@@ -50,15 +51,26 @@ struct proto {
   Proto next;
 };
 
+typedef struct member* Member;
+struct member {
+  Type type;
+  const char* name;
+  Member next;
+  int offset;
+};
+
 struct type {
   int kind;
   int size;
   Type base;
 
-  const char* name;
+  const char* str;
   Proto proto;
+  const char* tag;  // for struct, it's name
+  Member member;
 };
 
+const char* type_str(Type t);
 Type type(int kind, Type base, int size);
 Type ptr_type(Type base);
 Type deref_type(Type ptr);
@@ -67,6 +79,7 @@ Type array_to_ptr(Type a);
 Type function_type(Type t, Proto p);
 Type const_type(Type t);
 Type unqual(Type t);
+Type struct_type(Member member, const char* tag);
 
 int is_ptr(Type t);
 int is_array(Type t);
@@ -78,6 +91,7 @@ int is_arithmetic(Type t);
 int is_scalar(Type t);
 int is_qual(Type t);
 int is_const(Type t);
+int is_struct(Type t);
 int is_compatible_type(Type t1, Type t2);
 Type composite_type(Type t1, Type t2);
 Type integral_promote(Type t);
@@ -143,6 +157,7 @@ enum {
   TK_CONST,
   TK_VOLATILE,
   TK_RESTRICT,
+  TK_STRUCT,
   TK_SIZEOF,
   TK_IF,
   TK_ELSE,
@@ -245,6 +260,7 @@ enum {
   A_CONVERSION,
   /***** other *****/
   A_VAR,
+  A_TAG,
   A_VARARG,
   A_FUNCTION,
 };

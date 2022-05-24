@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "inc.h"
@@ -33,7 +34,7 @@ static Token consume(int kind) {
 }
 
 int match_type_spec() {
-  return t->kind >= TK_VOID && t->kind <= TK_RESTRICT;
+  return t->kind >= TK_VOID && t->kind <= TK_STRUCT;
 }
 /*******************
  * create AST Node *
@@ -394,11 +395,14 @@ int list_length(Node head) {
 }
 
 /***********************
- * variables and scope *
+ *        scope        *
  ***********************/
-// local variables are accumulated to this list during parsing current function
+// current function being parsed
+static Node current_func;
+// local variables
+// are accumulated to this list during parsing current function
 static Node locals;
-// global variables/function/string-literal
+// global variables/function/string-literal/tags
 // are accumulated to this list during parsing
 static Node globals;
 
@@ -407,6 +411,9 @@ struct scope {
   Node list;
   Scope outer;
 };
+
+// local variables/tags
+// are accumulated to this list during parsing current bloc
 static Scope scope;
 
 static void enter_scope() {
@@ -419,18 +426,24 @@ static void exit_scope() {
   scope = scope->outer;
 }
 
-static Node find_scope(const char* name, Scope s) {
+static Node find_scope(const char* name, Scope s, int kind) {
   for (Node n = s->list; n; n = n->scope_next) {
-    if (name == n->name)
+    if (name == n->name) {
+      if (n->kind != kind)
+        error("conflict type for %s", name);
       return n;
+    }
   }
   return NULL;
 }
 
-static Node find_global(const char* name) {
+static Node find_global(const char* name, int kind) {
   for (Node n = globals; n; n = n->next) {
-    if (name == n->name)
+    if (name == n->name) {
+      if (n->kind != kind)
+        error("conflict type for %s", name);
       return n;
+    }
   }
   return NULL;
 }
@@ -438,44 +451,35 @@ static Node find_global(const char* name) {
 static Node find_var(const char* name) {
   Node v;
   for (Scope s = scope; s; s = s->outer) {
-    if ((v = find_scope(name, s)))
+    if ((v = find_scope(name, s, A_VAR))) {
       return v;
+    }
   }
 
-  v = find_global(name);
-  if (v && v->kind == A_FUNCTION)
-    error("%s is a function, variable expected", name);
-  return v;
+  return find_global(name, A_VAR);
 }
 
 static Node mkvar(const char* name, Type ty) {
   Node n = mknode(A_VAR);
   n->name = name;
   n->type = ty;
-  return n;
-}
 
-static Node mklvar(const char* name, Type ty) {
-  if (find_scope(name, scope))
-    error("redefine local variable \"%s\"", name);
+  if (current_func) {  // local var
+    if (find_scope(name, scope, A_VAR))
+      error("redefine local variable \"%s\"", name);
+    n->is_global = 0;
+    n->next = locals;
+    locals = n;
+    n->scope_next = scope->list;
+    scope->list = n;
+  } else {  // gloabl var
+    if (find_global(name, A_VAR))
+      error("redefine global variable \"%s\"", name);
+    n->is_global = 1;
+    n->next = globals;
+    globals = n;
+  }
 
-  Node n = mkvar(name, ty);
-  n->is_global = 0;
-  n->next = locals;
-  locals = n;
-  n->scope_next = scope->list;
-  scope->list = n;
-  return n;
-}
-
-static Node mkgvar(const char* name, Type ty) {
-  if (find_global(name))
-    error("redefine global variable \"%s\"", name);
-
-  Node n = mkvar(name, ty);
-  n->is_global = 1;
-  n->next = globals;
-  globals = n;
   return n;
 }
 
@@ -485,7 +489,7 @@ static Node mkfunc(const char* name, Type ty) {
     ty->proto->type = voidtype;
   }
 
-  Node n = find_global(name);
+  Node n = find_global(name, A_FUNCTION);
   if (!n) {
     n = mknode(A_FUNCTION);
     n->name = name;
@@ -504,9 +508,61 @@ static Node mkfunc(const char* name, Type ty) {
 static Node mkstrlit(const char* str) {
   Node n = mknode(A_STRING_LITERAL);
   n->string_value = str;
-  n->next = globals;
   n->type = array_type(chartype, strlen(str) + 1);
+  n->next = globals;
   globals = n;
+  return n;
+}
+
+static Node find_tag(const char* name, int type_kind) {
+  char buff[4096];
+  sprintf(buff, ".tag.%s", name);
+  name = string(buff);
+
+  Node v;
+  for (Scope s = scope; s; s = s->outer) {
+    if ((v = find_scope(name, s, A_TAG))) {
+      if (unqual(v->type)->kind != type_kind)
+        error("conflict type %s", name);
+      return v;
+    }
+  }
+
+  v = find_global(name, A_TAG);
+  if (v && unqual(v->type)->kind != type_kind)
+    error("conflict type %s", name);
+  return v;
+}
+
+static Node mktag(const char* name, Type ty) {
+  char buff[4096];
+  sprintf(buff, ".tag.%s", name);
+  name = string(buff);
+
+  Node n =
+      current_func ? find_scope(name, scope, A_TAG) : find_global(name, A_TAG);
+
+  if (n) {
+    if (!ty->member) {
+    } else if (!n->type->member) {
+      n->type->member = ty->member;
+      n->type->str = type_str(n->type);
+    } else {
+      error("redefine tag \"%s\"", name);
+    }
+  } else {
+    n = mknode(A_TAG);
+    n->name = name;
+    n->type = ty;
+    if (current_func) {
+      n->scope_next = scope->list;
+      scope->list = n;
+    } else {
+      n->next = globals;
+      globals = n;
+    }
+  }
+
   return n;
 }
 
@@ -514,26 +570,31 @@ static Node mkstrlit(const char* str) {
  * recursive parse procedure *
  *****************************/
 
-// trans_unit:     { func_def | declaration }*
+// trans_unit:              { func_def | declaration }*
 // =======================   Function DEF   =======================
-// func_def:               declaration_specifiers declarator comp_stat <---+
-// =======================   Declaration   =======================         |
-// declaration:            declaration_specifiers                          |
-//                         init_declarator { ',' init_declarator }* ';'    |
-// declaration_specifiers: { type_specifier | type-qualifier }*            |
-// type_specifier:         { 'void' | 'char' | 'int' | 'short' |           |
-//                         'long' | 'unsigned'|'signed' }                  |
-// type_qualifier:         { 'const' | 'volatile' | 'restrict' }           |
-// init_declarator:        declarator { '=' expression }? -----------------+
-// declarator:             pointer? direct_declarator suffix_declarator*
-// pointer:                { '*' { type_qualifier }* }*
-// direct_declarator:      '(' declarator ')' |  identifier | Empty
-// suffix_declarator:      array_declarator | function_declarator
-// array_declarator:       '[' expression ']'
-// function_declarator:    '(' { parameter_list }* ')'
-// parameter_list:         parameter_declaration { ',' parameter_declaration }*
-// parameter_declaration:  declaration_specifiers declarator
-// type_name:              declaration_specifiers declarator
+// func_def:                declaration_specifiers declarator comp_stat
+// =======================   Declaration   =======================
+// declaration:             declaration_specifiers
+//                          init_declarator { ',' init_declarator }* ';'
+// declaration_specifiers:  { type_specifier | type-qualifier }*
+// type_qualifier:          { 'const' | 'volatile' | 'restrict' }
+// type_specifier:          { 'void' | 'char' | 'int' | 'short' |
+//                            'long' | 'unsigned'|'signed'
+//                            'struct_specifier' }
+// struct_specifier:        'struct' identifier?
+//                          { '{' struct_declaration_list '}' }?
+// struct_declaration_list: { {type_qualifier|type_specifier}+
+//                           decalrator {',' declarator}      ';' }+
+// init_declarator:         declarator { '=' expression }? -> func_def
+// declarator:              pointer? direct_declarator suffix_declarator*
+// pointer:                 { '*' { type_qualifier }* }*
+// direct_declarator:       '(' declarator ')' |  identifier | Empty
+// suffix_declarator:       array_declarator | function_declarator
+// array_declarator:        '[' expression ']'
+// function_declarator:     '(' { parameter_list }* ')'
+// parameter_list:          parameter_declaration {',' parameter_declaration}*
+// parameter_declaration:   declaration_specifiers declarator
+// type_name:               declaration_specifiers declarator
 // =======================   Statement   =======================
 // statement:      expr_stat | comp_stat
 //                 selection-stat | iteration-stat | jump_stat
@@ -548,29 +609,32 @@ static Node mkstrlit(const char* str) {
 // comp_stat:      '{' {declaration}* {stat}* '}'
 // expr_stat:      {expression}? ';'
 // =======================   Expression   =======================
-// expression:     comma_expr
-// comma_expr:     assign_expr { ', ' assign_expr }*
-// assign_expr:    conditional_expr { '=' assign_expr }
-// conditional_expr: logical_or_expr { '?' expression : conditional_expr }?
-// logical_or_expr:  logical_and_expr { '||' logical_and_expr }*
-// logical_and_expr: equality_expr { '&&' inclusive_or_expr }*
-// inclusive_or_expr:exclusive_or_expr { '|' exclusive_or_expr }*
-// exclusive_or_expr:bitwise_and_expr { '^' bitwise_and_expr }*
-// bitwise_and_expr: equality_expr { '&' equality_expr}*
-// equality_expr:  relational_expr { '==' | '!='  relational_expr }*
-// relational_expr:  sum_expr { '>' | '<' | '>=' | '<=' shift_expr}*
-// shift_expr:     sum_expr { '<<' | '>>' sum_expr }*
-// sum_expr        :mul_expr { '+'|'-' mul_exp }*
-// mul_exp:        unary_expr { '*'|'/' | '%' unary_expr }*
-// unary_expr:    { '*'|'&'|'+'|'- '|'~'|'!'|'++'|'--'|'sizeof' }? postfix_expr
-// postfix_expr:  primary_expr { arg_list|array_subscripting|'++'|'--' }*
-// primary_expr:  identifier | number | string-literal | '('expression ')'
-// arg_list:       '(' expression { ',' expression } ')'
+// expression:         comma_expr
+// comma_expr:         assign_expr { ', ' assign_expr }*
+// assign_expr:        conditional_expr { '=' assign_expr }
+// conditional_expr:   logical_or_expr { '?' expression : conditional_expr }?
+// logical_or_expr:    logical_and_expr { '||' logical_and_expr }*
+// logical_and_expr:   equality_expr { '&&' inclusive_or_expr }*
+// inclusive_or_expr:  exclusive_or_expr { '|' exclusive_or_expr }*
+// exclusive_or_expr:  bitwise_and_expr { '^' bitwise_and_expr }*
+// bitwise_and_expr:   equality_expr { '&' equality_expr}*
+// equality_expr:      relational_expr { '==' | '!='  relational_expr }*
+// relational_expr:    sum_expr { '>' | '<' | '>=' | '<=' shift_expr}*
+// shift_expr:         sum_expr { '<<' | '>>' sum_expr }*
+// sum_expr:           mul_expr { '+'|'-' mul_exp }*
+// mul_exp:            unary_expr { '*'|'/' | '%' unary_expr }*
+// unary_expr:         { '*'|'&'|'+'|'- '|'~'|'!'|'++'|'--'|'sizeof' }?
+//                     postfix_expr
+// postfix_expr:       primary_expr {arg_list|array_subscripting|'++'|'--' }*
+// primary_expr:       identifier | number | string-literal | '('expression ')'
+// arg_list:           '(' expression { ',' expression } ')'
 // array_subscripting: '[' expression ']'
 
 static Node trans_unit();
 static Node declaration();
 static Type declaration_specifiers();
+static Type struct_specifier();
+static Member struct_declaration_list();
 static Node init_declarator(Type ty);  // scope????
 static Type declarator(Type ty, const char** name);
 static Type pointer(Type ty);
@@ -607,9 +671,6 @@ static Node func_call(Node n);
 static Node array_subscripting(Node n);
 static Node variable(Node n);
 
-// current function being parsed
-static Node current_func;
-
 static Node trans_unit() {
   while (t)
     declaration();
@@ -617,6 +678,8 @@ static Node trans_unit() {
   return globals;
 }
 
+// for struct type declaration without declarator
+//    make tag/type(return nothing)
 // for local declaration(called by comp_stat)
 //    make local variable(return node list for init assign)
 // for global declaration(called by trans_unit)
@@ -626,6 +689,13 @@ static Node trans_unit() {
 //    make function node && fill body(return node for the function)
 static Node declaration() {
   Type ty = declaration_specifiers();
+
+  if (consume(TK_SIMI)) {
+    if (!is_struct(ty))
+      error("declare nothing");
+    return NULL;
+  }
+
   Node n = init_declarator(ty);
   if (n && n->kind == A_FUNCTION) {
     if (match(TK_OPENING_BRACES))
@@ -665,8 +735,9 @@ enum {
   SPEC_RESTRICT = 1 << 10
 };
 
-Type declaration_specifiers() {
+static Type declaration_specifiers() {
   Type ty;
+  Type struct_type = NULL;
   int specifiers = 0;
   for (;;) {
     if (consume(TK_VOID)) {
@@ -708,67 +779,75 @@ Type declaration_specifiers() {
       set_specifier(specifiers, SPEC_VOLATILE);
     } else if (consume(TK_RESTRICT)) {
       set_specifier(specifiers, SPEC_RESTRICT);
+    } else if (match(TK_STRUCT)) {
+      struct_type = struct_specifier();
     } else
       break;
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.2
   int type_spec = specifiers & ((1 << 8) - 1);
-  switch (type_spec) {
-    case 0:
-      error("no data type in declaration specifiers");
-      break;
-    case SPEC_VOID:
-      ty = voidtype;
-      break;
-    case SPEC_CHAR:
-    case SPEC_CHAR | SPEC_SIGNED:
-      ty = chartype;
-      break;
-    case SPEC_CHAR | SPEC_UNSIGNED:
-      ty = uchartype;
-      break;
-    case SPEC_SHORT:
-    case SPEC_SIGNED | SPEC_SHORT:
-    case SPEC_SHORT | SPEC_INT:
-    case SPEC_SIGNED | SPEC_SHORT | SPEC_INT:
-      ty = shorttype;
-      break;
-    case SPEC_UNSIGNED | SPEC_SHORT:
-    case SPEC_UNSIGNED | SPEC_SHORT | SPEC_INT:
-      ty = ushorttype;
-      break;
-    case SPEC_INT:
-    case SPEC_SIGNED:
-    case SPEC_INT | SPEC_SIGNED:
-      ty = inttype;
-      break;
-    case SPEC_UNSIGNED:
-    case SPEC_UNSIGNED | SPEC_INT:
-      ty = uinttype;
-      break;
-    case SPEC_LONG1:
-    case SPEC_SIGNED | SPEC_LONG1:
-    case SPEC_LONG1 | SPEC_INT:
-    case SPEC_SIGNED | SPEC_LONG1 | SPEC_INT:
-      ty = longtype;
-      break;
-    case SPEC_UNSIGNED | SPEC_LONG1:
-    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_INT:
-      ty = ulongtype;
-      break;
-    case SPEC_LONG1 | SPEC_LONG2:
-    case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2:
-    case SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
-    case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
-      ty = longtype;
-      break;
-    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2:
-    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
-      ty = ulongtype;
-      break;
-    default:
+  if (struct_type) {
+    ty = struct_type;
+    if (type_spec)
       error("two or more data types in declaration specifiers");
+  } else {
+    switch (type_spec) {
+      case 0:
+        error("no data type in declaration specifiers");
+        break;
+      case SPEC_VOID:
+        ty = voidtype;
+        break;
+      case SPEC_CHAR:
+      case SPEC_CHAR | SPEC_SIGNED:
+        ty = chartype;
+        break;
+      case SPEC_CHAR | SPEC_UNSIGNED:
+        ty = uchartype;
+        break;
+      case SPEC_SHORT:
+      case SPEC_SIGNED | SPEC_SHORT:
+      case SPEC_SHORT | SPEC_INT:
+      case SPEC_SIGNED | SPEC_SHORT | SPEC_INT:
+        ty = shorttype;
+        break;
+      case SPEC_UNSIGNED | SPEC_SHORT:
+      case SPEC_UNSIGNED | SPEC_SHORT | SPEC_INT:
+        ty = ushorttype;
+        break;
+      case SPEC_INT:
+      case SPEC_SIGNED:
+      case SPEC_INT | SPEC_SIGNED:
+        ty = inttype;
+        break;
+      case SPEC_UNSIGNED:
+      case SPEC_UNSIGNED | SPEC_INT:
+        ty = uinttype;
+        break;
+      case SPEC_LONG1:
+      case SPEC_SIGNED | SPEC_LONG1:
+      case SPEC_LONG1 | SPEC_INT:
+      case SPEC_SIGNED | SPEC_LONG1 | SPEC_INT:
+        ty = longtype;
+        break;
+      case SPEC_UNSIGNED | SPEC_LONG1:
+      case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_INT:
+        ty = ulongtype;
+        break;
+      case SPEC_LONG1 | SPEC_LONG2:
+      case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2:
+      case SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+      case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+        ty = longtype;
+        break;
+      case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2:
+      case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+        ty = ulongtype;
+        break;
+      default:
+        error("two or more data types in declaration specifiers");
+    }
   }
 
   // cache nothing in register, so all variable is VOLATILE?
@@ -777,6 +856,63 @@ Type declaration_specifiers() {
   if (get_specifier(specifiers, SPEC_RESTRICT))
     error("not implemented: restrict");
   return ty;
+}
+
+static Member mkmember(Type type, const char* name) {
+  if (!name)
+    error("declare nothing");
+  Member p = calloc(1, sizeof(struct member));
+  p->type = type;
+  p->name = name;
+  return p;
+}
+
+static void link_member(Member head, Member m) {
+  while (head->next) {
+    if (m->name && head->next->name == m->name)
+      error("redefinition of member %s", m->name);
+    head = head->next;
+  }
+  head->next = m;
+}
+
+static Member struct_declaration_list() {
+  struct member head = {0};
+  if (consume(TK_OPENING_BRACES)) {
+    while (!consume(TK_CLOSING_BRACES)) {
+      Type ty = declaration_specifiers();
+      const char* mem_name = NULL;
+      Type mem_ty = declarator(ty, &mem_name);
+      link_member(&head, mkmember(mem_ty, mem_name));
+      while (!consume(TK_SIMI)) {
+        expect(TK_COMMA);
+        mem_name = NULL;
+        mem_ty = declarator(ty, &mem_name);
+        link_member(&head, mkmember(mem_ty, mem_name));
+      }
+    }
+
+    if (!head.next)
+      error("struct has no members");
+  }
+  return head.next;
+}
+
+static Type struct_specifier() {
+  expect(TK_STRUCT);
+  const char* name = match(TK_IDENT) ? consume(TK_IDENT)->name : NULL;
+  Member member = struct_declaration_list();
+  if (member) {
+    Type ty = struct_type(member, name);
+    if (name)
+      mktag(name, ty);
+    return ty;
+  }
+
+  Node tag = find_tag(name, TY_STRUCT);
+  if (!tag)
+    tag = mktag(name, struct_type(NULL, name));
+  return tag->type;
 }
 
 // returned value for different kind of declarotor
@@ -792,7 +928,7 @@ static Node init_declarator(Type ty) {
   if (is_funcion(ty))
     return mkfunc(name, ty);
 
-  Node n = current_func ? mklvar(name, ty) : mkgvar(name, ty);
+  Node n = mkvar(name, ty);
   if (consume(TK_EQUAL)) {
     Node e = assign_expr();
     if (is_array(ty))
@@ -963,6 +1099,7 @@ static Node function(Node f) {
     error("redefinition of function %s", f->name);
 
   enter_scope();
+  current_func = f;
   locals = NULL;
   // paramenter
   f->params = mklist(NULL);
@@ -970,9 +1107,9 @@ static Node function(Node f) {
     for (Proto p = f->type->proto; p; p = p->next) {
       if (!p->name)
         error("omitting parameter name in function definition");
-      list_insert(f->params, mklist(mklvar(p->name, p->type)));
+      list_insert(f->params, mklist(mkvar(p->name, p->type)));
     }
-  current_func = f;
+
   f->body = comp_stat(1);
   f->locals = locals;
   current_func = NULL;
@@ -1372,9 +1509,7 @@ static Node func_call(Node n) {
     error("not implemented");
   const char* name = n->name;
 
-  Node f = find_global(name);
-  if (f && !(f->kind == A_FUNCTION))
-    error("called object \"%s\" is not a function", name);
+  Node f = find_global(name, A_FUNCTION);
   if (!f) {  //  implicit function declaration
     warn("implicit declaration of function %s", name);
     f = mkfunc(name, function_type(inttype, NULL));

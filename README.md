@@ -49,10 +49,11 @@
     - [ ] floaing types
     - [x] pointer types
     - [ ] enumerated types
-    - [ ] function types
+    - [x] function types
     - [x] array types [array declarator](http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2)
     - [ ] struct types
     - [ ] union types
+    - [ ] alignment
 - [ ] [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)
     - [x] integral
     - [ ] floating
@@ -76,6 +77,7 @@
 - [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [ ] [initialization](http://port70.net/~nsz/c/c99/n1256.html#6.7.8)
     - [ ] declaration of function without name
+    - [ ] [struct with bit-field member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p9)
 - [ ] Others
     - [x] remove print statement by calling library function "printf"
     - [x] for test, compile the source code with gcc, use the output of gcc as target output
