@@ -121,6 +121,8 @@ enum {
   TK_CARET_EQUAL,
   TK_BAR_EQUAL,
   TK_ELLIPSIS,
+  TK_DOT,
+  TK_ARROW,
   TK_COMMA,
   TK_SIMI,
   TK_COLON,
@@ -148,7 +150,6 @@ enum {
   TK_LESS,
   TK_EXCLAMATION,
   TK_TILDE,
-  TK_DOT,
   /***** keyword *****/
   TK_VOID,
   TK_CHAR,

@@ -1468,7 +1468,7 @@ static Node postfix_expr() {
       n = func_call(n);
     else if (match(TK_OPENING_BRACKETS))
       n = array_subscripting(n);
-    else if (match(TK_DOT))
+    else if (match(TK_DOT) || match(TK_ARROW))
       n = member_selection(n);
     else if (consume(TK_PLUS_PLUS))
       n = mkunary(A_POSTFIX_INC, n->kind == A_IDENT ? variable(n) : n);
@@ -1574,12 +1574,19 @@ static Node array_subscripting(Node n) {
 static Node member_selection(Node n) {
   if (n->kind == A_IDENT) {
     if (!(n = find_var(n->name)))
-      error("undefined array");
+      error("undefined variable");
   }
+
+  if (consume(TK_ARROW)) {
+    if (!is_ptr(n->type))
+      error("pointer expect for -> operator");
+    n = mkunary(A_DEFERENCE, n);
+  } else
+    expect(TK_DOT);
+
   if (!is_struct(n->type))
     error("select member in something not in structure");
 
-  expect(TK_DOT);
   Node s = mknode(A_MEMBER_SELECTION);
   s->structure = n;
   s->member = get_struct_member(n->type, expect(TK_IDENT)->name);
