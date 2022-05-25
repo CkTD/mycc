@@ -88,6 +88,8 @@ static void gen_load(Type ty) {
 
   if (is_array(ty))  // for array, the address is it's value
     return;
+  if (is_struct(ty))  // for struct, keep the address
+    return;
 
   fprintf(stdout, "\tpopq\t%%rax\n");
   if (ty == chartype || ty == uchartype)
@@ -119,7 +121,16 @@ static void gen_store(Type ty) {
     fprintf(stdout, "\tmovq\t%%rax, (%%rdi)\n");
   else if (is_array(ty))
     error("assignment to expression with array type");
-  else
+  else if (is_struct(ty)) {
+    int offset = 0;
+    for (int s = 8; s; s >>= 1)
+      for (; ty->size - offset >= s; offset += s) {
+        fprintf(stdout, "\tmov%c\t%d(%%rax), %%%s\n", size_suffix(s), offset,
+                regs(s, RSI));
+        fprintf(stdout, "\tmov%c\t%%%s, %d(%%rdi)\n", size_suffix(s),
+                regs(s, RSI), offset);
+      }
+  } else
     error("store unknown type");
 
   fprintf(stdout, "\tpushq\t%%rax\n");
@@ -164,6 +175,14 @@ static void gen_addr(Node n) {
       fprintf(stdout, "\timulq\t$%d, %%rax\n", size);
       fprintf(stdout, "\tleaq\t(%%rdi, %%rax), %%rax\n");
     }
+    fprintf(stdout, "\tpushq\t%%rax\n");
+    return;
+  }
+
+  if (n->kind == A_MEMBER_SELECTION) {
+    gen_addr(n->structure);
+    fprintf(stdout, "\tpopq\t%%rax\n");
+    fprintf(stdout, "\taddq\t$%d, %%rax\n", n->member->offset);
     fprintf(stdout, "\tpushq\t%%rax\n");
     return;
   }
@@ -406,6 +425,7 @@ static void gen_expr(Node n) {
       return;
     case A_VAR:
     case A_ARRAY_SUBSCRIPTING:
+    case A_MEMBER_SELECTION:
       gen_addr(n);
       gen_load(n->type);
       return;

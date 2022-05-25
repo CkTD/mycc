@@ -48,6 +48,7 @@ const char* token_str[] = {
     [TK_LESS] = "<",
     [TK_EXCLAMATION] = "!",
     [TK_TILDE] = "~",
+    [TK_DOT] = ".",
     // keywords
     [TK_VOID] = "void",
     [TK_CHAR] = "char",
@@ -210,7 +211,7 @@ Token tokenize(const char* src) {
     }
     // punc
     else if (ispunct(*p)) {
-      for (int k = TK_OPENING_BRACES; k <= TK_TILDE; k++) {
+      for (int k = TK_OPENING_BRACES; k <= TK_DOT; k++) {
         int len = strlen(token_str[k]);
         if (!strncmp(p, token_str[k], len)) {
           p += len;

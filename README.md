@@ -8,6 +8,7 @@
 * [C operator precedence](https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B#Operator_precedence)
 * [Understand integer conversion rules(Integer Promotions, Integer Conversion Rank, Usual Arithmetic Conversions)](https://wiki.sei.cmu.edu/confluence/display/c/INT02-C.+Understand+integer+conversion+rules), [C99(6.3)](http://port70.net/~nsz/c/c99/n1256.html#6.3)
 * [Implicity prototype C99 vs C90](https://stackoverflow.com/a/437763)
+* [alignment](http://www.catb.org/esr/structure-packing/#_alignment_requirements)
 
 ## x86
 

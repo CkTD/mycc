@@ -70,7 +70,6 @@ struct type {
   Member member;
 };
 
-const char* type_str(Type t);
 Type type(int kind, Type base, int size);
 Type ptr_type(Type base);
 Type deref_type(Type ptr);
@@ -80,6 +79,8 @@ Type function_type(Type t, Proto p);
 Type const_type(Type t);
 Type unqual(Type t);
 Type struct_type(Member member, const char* tag);
+Member get_struct_member(Type t, const char* name);
+void update_struct_type(Type ty, Member member);
 
 int is_ptr(Type t);
 int is_array(Type t);
@@ -92,6 +93,7 @@ int is_scalar(Type t);
 int is_qual(Type t);
 int is_const(Type t);
 int is_struct(Type t);
+int is_struct_with_const_member(Type t);
 int is_compatible_type(Type t1, Type t2);
 Type composite_type(Type t1, Type t2);
 Type integral_promote(Type t);
@@ -146,6 +148,7 @@ enum {
   TK_LESS,
   TK_EXCLAMATION,
   TK_TILDE,
+  TK_DOT,
   /***** keyword *****/
   TK_VOID,
   TK_CHAR,
@@ -241,6 +244,7 @@ enum {
   A_ARRAY_SUBSCRIPTING,
   A_POSTFIX_INC,
   A_POSTFIX_DEC,
+  A_DOT,
   // primary
   A_NUM,
   A_IDENT,
@@ -263,6 +267,7 @@ enum {
   A_TAG,
   A_VARARG,
   A_FUNCTION,
+  A_MEMBER_SELECTION,
 };
 
 struct node {
@@ -317,6 +322,10 @@ struct node {
   // A_ARRAY_SUBSCRIPTING
   Node array;  // array / pointer
   Node index;
+
+  // A_MEMBER_SELECTION
+  Node structure;
+  Member member;
 
   // A_FUNCTION
   Node globals;

@@ -47,6 +47,8 @@ static int is_lvalue(Node node) {
     case A_DEFERENCE:
     case A_ARRAY_SUBSCRIPTING:
       return 1;
+    case A_MEMBER_SELECTION:
+      return is_lvalue(node->structure);
     default:
       return 0;
   }
@@ -54,7 +56,8 @@ static int is_lvalue(Node node) {
 
 static int is_modifiable_lvalue(Node node, int ignore_qual) {
   Type t = ignore_qual ? unqual(node->type) : node->type;
-  return is_lvalue(node) && !is_const(t) && !is_array(t);
+  return is_lvalue(node) && !is_const(t) && !is_array(t) &&
+         !is_struct_with_const_member(t);
 }
 
 static Node mknode(int kind) {
@@ -207,6 +210,9 @@ static Node mkbinary(int kind, Node left, Node right) {
             is_const(deref_type(n->right->type)))
           error("assign discards const");
       }
+      if (!is_compatible_type(unqual(n->left->type), n->right->type))
+        error("assign with incompatible type");
+    } else if (is_struct(n->left->type) && is_struct(n->right->type)) {
       if (!is_compatible_type(unqual(n->left->type), n->right->type))
         error("assign with incompatible type");
     } else
@@ -545,8 +551,7 @@ static Node mktag(const char* name, Type ty) {
   if (n) {
     if (!ty->member) {
     } else if (!n->type->member) {
-      n->type->member = ty->member;
-      n->type->str = type_str(n->type);
+      update_struct_type(n->type, ty->member);
     } else {
       error("redefine tag \"%s\"", name);
     }
@@ -669,6 +674,7 @@ static Node postfix_expr();
 static Node primary_expr();
 static Node func_call(Node n);
 static Node array_subscripting(Node n);
+static Node member_selection(Node n);
 static Node variable(Node n);
 
 static Node trans_unit() {
@@ -1462,6 +1468,8 @@ static Node postfix_expr() {
       n = func_call(n);
     else if (match(TK_OPENING_BRACKETS))
       n = array_subscripting(n);
+    else if (match(TK_DOT))
+      n = member_selection(n);
     else if (consume(TK_PLUS_PLUS))
       n = mkunary(A_POSTFIX_INC, n->kind == A_IDENT ? variable(n) : n);
     else if (consume(TK_MINUS_MINUS))
@@ -1546,9 +1554,8 @@ static Node func_call(Node n) {
 
 static Node array_subscripting(Node n) {
   if (n->kind == A_IDENT) {
-    n = find_var(n->name);
-    if (!n)
-      error("undefined array %s", n->name);
+    if (!(n = find_var(n->name)))
+      error("undefined array");
   }
 
   while (consume(TK_OPENING_BRACKETS)) {
@@ -1562,6 +1569,25 @@ static Node array_subscripting(Node n) {
     expect(TK_CLOSING_BRACKETS);
   }
   return n;
+}
+
+static Node member_selection(Node n) {
+  if (n->kind == A_IDENT) {
+    if (!(n = find_var(n->name)))
+      error("undefined array");
+  }
+  if (!is_struct(n->type))
+    error("select member in something not in structure");
+
+  expect(TK_DOT);
+  Node s = mknode(A_MEMBER_SELECTION);
+  s->structure = n;
+  s->member = get_struct_member(n->type, expect(TK_IDENT)->name);
+  if (!s->member)
+    error("struct has no wanted member");
+  s->type = is_const(n->type) ? const_type(s->member->type) : s->member->type;
+
+  return s;
 }
 
 static Node variable(Node n) {

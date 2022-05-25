@@ -121,7 +121,9 @@ Type function_type(Type t, Proto p) {
 }
 
 Type const_type(Type t) {
-  return type(TY_CONST, t, 0);
+  if (is_const(t))
+    return t;
+  return type(TY_CONST, t, t->size);
 }
 
 Type unqual(Type t) {
@@ -130,16 +132,28 @@ Type unqual(Type t) {
 
 Type struct_type(Member member, const char* tag) {
   Type ty = type(TY_STRUCT, NULL, 0);
-  ty->member = member;
   ty->tag = tag;
-  for (Member m = member; m; m = m->next) {
+  update_struct_type(ty, member);
+  return ty;
+}
+
+Member get_struct_member(Type t, const char* name) {
+  for (Member m = unqual(t)->member; m; m = m->next) {
+    if (m->name == name)
+      return m;
+  }
+  return NULL;
+}
+
+void update_struct_type(Type ty, Member member) {
+  ty->member = member;
+  for (Member m = ty->member; m; m = m->next) {
     if (m->type->size == 0)
       error("not implemented");
     m->offset = ty->size;
     ty->size += m->type->size;
   }
   ty->str = type_str(ty);
-  return ty;
 }
 
 int is_ptr(Type t) {
@@ -186,6 +200,16 @@ int is_const(Type t) {
 
 int is_struct(Type t) {
   return unqual(t)->kind == TY_STRUCT;
+}
+
+int is_struct_with_const_member(Type t) {
+  if (!is_struct(t))
+    return 0;
+  for (Member m = unqual(t)->member; m; m = m->next) {
+    if (is_struct_with_const_member(m->type))
+      return 1;
+  }
+  return 0;
 }
 
 int is_compatible_type(Type t1, Type t2) {
@@ -242,6 +266,21 @@ int is_compatible_type(Type t1, Type t2) {
       if (!is_compatible_type(default_argument_promoe(p->type), p->type))
         return 0;
     }
+    return 1;
+  }
+
+  if (is_struct(t1)) {
+    if (t1->tag != t2->tag)
+      return 0;
+    Member m1 = t1->member, m2 = t2->member;
+    for (; m1 && m2; m1 = m1->next, m2 = m2->next) {
+      if (m1->name != m2->name)
+        return 0;
+      if (!is_compatible_type(m1->type, m2->type))
+        return 0;
+    }
+    if (m1 || m2)
+      return 0;
     return 1;
   }
 
