@@ -34,6 +34,7 @@ enum {
   TY_PLACEHOLDER,
   TY_STRUCT,
   TY_UNION,
+  TY_ENUM,
 };
 
 extern Type voidtype;
@@ -69,7 +70,7 @@ struct type {
 
   const char* str;
   Proto proto;
-  const char* tag;  // for struct, it's name
+  const char* tag;  // for struct/union/enum
   Member member;
 };
 
@@ -84,6 +85,7 @@ Type unqual(Type t);
 Type struct_or_union_type(Member member, const char* tag, int kind);
 Member get_struct_or_union_member(Type t, const char* name);
 void update_struct_or_union_type(Type ty, Member member);
+Type enum_type(const char* tag);
 
 int is_ptr(Type t);
 int is_array(Type t);
@@ -99,6 +101,7 @@ int is_struct(Type t);
 int is_union(Type t);
 int is_struct_or_union(Type t);
 int is_struct_with_const_member(Type t);
+int is_enum(Type t);
 int is_compatible_type(Type t1, Type t2);
 Type composite_type(Type t1, Type t2);
 Type integral_promote(Type t);
@@ -168,6 +171,7 @@ enum {
   TK_RESTRICT,
   TK_STRUCT,
   TK_UNION,
+  TK_ENUM,
   TK_SIZEOF,
   TK_IF,
   TK_ELSE,
@@ -200,6 +204,7 @@ Token tokenize(const char* input);
  *   parse   *
  *************/
 enum {
+  A_ANY,
   /***** expressions *****/
   // 17 left
   A_COMMA,
@@ -275,6 +280,7 @@ enum {
   A_VARARG,
   A_FUNCTION,
   A_MEMBER_SELECTION,
+  A_ENUM_CONST,
 };
 
 struct node {
@@ -311,7 +317,7 @@ struct node {
   // A_FUNCTION, A_CONVERSION, A_DLIST, A_EXPR_STAT, A_BLOCK
   Node body;
 
-  // A_NUM
+  // A_NUM, A_ENUM_CONST
   int intvalue;
 
   // A_STRING_LITERAL

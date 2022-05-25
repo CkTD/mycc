@@ -34,7 +34,7 @@ static Token consume(int kind) {
 }
 
 static int match_specifier() {
-  return t->kind >= TK_VOID && t->kind <= TK_UNION;
+  return t->kind >= TK_VOID && t->kind <= TK_ENUM;
 }
 /*******************
  * create AST Node *
@@ -433,10 +433,14 @@ static void exit_scope() {
   scope = scope->outer;
 }
 
+// search symbol of 'kind' having 'name' in scope
+//   if name not found in scope, return NULL
+//   if a symbol matching the name but with different kind, error
+//   kind = A_ANY(0) means any kind is ok
 static Node find_scope(const char* name, Scope s, int kind) {
   for (Node n = s->list; n; n = n->scope_next) {
     if (name == n->name) {
-      if (n->kind != kind)
+      if (kind && n->kind != kind)
         error("conflict type for %s", name);
       return n;
     }
@@ -447,7 +451,7 @@ static Node find_scope(const char* name, Scope s, int kind) {
 static Node find_global(const char* name, int kind) {
   for (Node n = globals; n; n = n->next) {
     if (name == n->name) {
-      if (n->kind != kind)
+      if (kind && n->kind != kind)
         error("conflict type for %s", name);
       return n;
     }
@@ -455,15 +459,15 @@ static Node find_global(const char* name, int kind) {
   return NULL;
 }
 
-static Node find_var(const char* name) {
-  Node v;
+static Node find_symbol(const char* name, int kind) {
+  Node n;
   for (Scope s = scope; s; s = s->outer) {
-    if ((v = find_scope(name, s, A_VAR))) {
-      return v;
+    if ((n = find_scope(name, s, kind))) {
+      return n;
     }
   }
 
-  return find_global(name, A_VAR);
+  return find_global(name, kind);
 }
 
 static Node mkvar(const char* name, Type ty) {
@@ -491,11 +495,6 @@ static Node mkvar(const char* name, Type ty) {
 }
 
 static Node mkfunc(const char* name, Type ty) {
-  if (match(TK_OPENING_BRACES) && !ty->proto) {
-    ty->proto = calloc(1, sizeof(struct proto));
-    ty->proto->type = voidtype;
-  }
-
   Node n = find_global(name, A_FUNCTION);
   if (!n) {
     n = mknode(A_FUNCTION);
@@ -521,36 +520,32 @@ static Node mkstrlit(const char* str) {
   return n;
 }
 
+// tag for struct/union/enum share namesapce
+// http://port70.net/~nsz/c/c99/n1256.html#6.2.3
 static Node find_tag(const char* name, int type_kind) {
   char buff[4096];
   sprintf(buff, ".tag.%s", name);
-  name = string(buff);
+  const char* search_name = string(buff);
 
-  Node v;
-  for (Scope s = scope; s; s = s->outer) {
-    if ((v = find_scope(name, s, A_TAG))) {
-      if (unqual(v->type)->kind != type_kind)
-        error("conflict type %s", name);
-      return v;
-    }
-  }
-
-  v = find_global(name, A_TAG);
-  if (v && unqual(v->type)->kind != type_kind)
+  Node n = find_symbol(search_name, A_TAG);
+  if (n && unqual(n->type)->kind != type_kind)
     error("conflict type %s", name);
-  return v;
+
+  return n;
 }
 
 static Node mktag(const char* name, Type ty) {
   char buff[4096];
   sprintf(buff, ".tag.%s", name);
-  name = string(buff);
+  const char* search_name = string(buff);
 
-  Node n =
-      current_func ? find_scope(name, scope, A_TAG) : find_global(name, A_TAG);
+  Node n = current_func ? find_scope(search_name, scope, A_TAG)
+                        : find_global(search_name, A_TAG);
 
   if (n) {
-    if (!ty->member) {
+    if (is_enum(ty))
+      error("redefine tag \"%s\"", name);
+    else if (!ty->member) {
     } else if (!n->type->member) {
       update_struct_or_union_type(n->type, ty->member);
     } else {
@@ -558,7 +553,7 @@ static Node mktag(const char* name, Type ty) {
     }
   } else {
     n = mknode(A_TAG);
-    n->name = name;
+    n->name = search_name;
     n->type = ty;
     if (current_func) {
       n->scope_next = scope->list;
@@ -569,6 +564,27 @@ static Node mktag(const char* name, Type ty) {
     }
   }
 
+  return n;
+}
+
+static Node mkenumconst(const char* name, int value) {
+  Node n = current_func ? find_scope(name, scope, A_ENUM_CONST)
+                        : find_global(name, A_ENUM_CONST);
+  if (n)
+    error("redefine enumerator %s", name);
+
+  n = mknode(A_ENUM_CONST);
+  n->name = name;
+  n->type = inttype;
+  n->intvalue = value;
+
+  if (current_func) {
+    n->scope_next = scope->list;
+    scope->list = n;
+  } else {
+    n->next = globals;
+    globals = n;
+  }
   return n;
 }
 
@@ -586,11 +602,15 @@ static Node mktag(const char* name, Type ty) {
 // type_qualifier:          { 'const' | 'volatile' | 'restrict' }
 // type_specifier:          { 'void' | 'char' | 'int' | 'short' |
 //                            'long' | 'unsigned'|'signed'
-//                            'struct_union_specifier' }
+//                            struct_union_specifier | enum_specifier }
 // struct_union_specifier:  {'struct' | 'union'} identifier?
 //                          { '{' struct_declaration_list '}' }?
 // struct_declaration_list: { {type_qualifier|type_specifier}+
 //                           decalrator {',' declarator}      ';' }+
+// enum_specifier:          'enum' identifier? '{' enumerator_list ','? '}'
+// enumerator_list:         enumerator { ','  enumerator }*
+// enumerator:              enumeration-constant { '=' expression }?
+// enumeration-constant:    identifier
 // init_declarator:         declarator { '=' expression }? -> func_def
 // declarator:              pointer? direct_declarator suffix_declarator*
 // pointer:                 { '*' { type_qualifier }* }*
@@ -641,6 +661,7 @@ static Node declaration();
 static Type declaration_specifiers();
 static Type struct_union_specifier();
 static Member struct_declaration_list();
+static Type enum_specifier();
 static Node init_declarator(Type ty);  // scope????
 static Type declarator(Type ty, const char** name);
 static Type pointer(Type ty);
@@ -676,7 +697,7 @@ static Node primary_expr();
 static Node func_call(Node n);
 static Node array_subscripting(Node n);
 static Node member_selection(Node n);
-static Node variable(Node n);
+static Node ordinary(Node n);
 
 static Node trans_unit() {
   while (t)
@@ -698,7 +719,7 @@ static Node declaration() {
   Type ty = declaration_specifiers();
 
   if (consume(TK_SIMI)) {
-    if (!is_struct_or_union(ty))
+    if (!is_struct_or_union(ty) && !is_enum(ty))
       error("declare nothing");
     return NULL;
   }
@@ -745,6 +766,7 @@ enum {
 static Type declaration_specifiers() {
   Type ty;
   Type struct_or_union_type = NULL;
+  Type enum_type = NULL;
   int specifiers = 0;
   for (;;) {
     if (consume(TK_VOID)) {
@@ -787,7 +809,13 @@ static Type declaration_specifiers() {
     } else if (consume(TK_RESTRICT)) {
       set_specifier(specifiers, SPEC_RESTRICT);
     } else if (match(TK_STRUCT) || match(TK_UNION)) {
+      if (struct_or_union_type)
+        error("two or more data types in declaration specifiers");
       struct_or_union_type = struct_union_specifier();
+    } else if (match(TK_ENUM)) {
+      if (enum_type)
+        error("two or more data types in declaration specifiers");
+      enum_type = enum_specifier();
     } else
       break;
   }
@@ -795,9 +823,13 @@ static Type declaration_specifiers() {
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.2
   int type_spec = specifiers & ((1 << 8) - 1);
   if (struct_or_union_type) {
+    if (type_spec || enum_type)
+      error("two or more data types in declaration specifiers");
     ty = struct_or_union_type;
+  } else if (enum_type) {
     if (type_spec)
       error("two or more data types in declaration specifiers");
+    ty = enum_type;
   } else {
     switch (type_spec) {
       case 0:
@@ -922,6 +954,35 @@ static Type struct_union_specifier() {
   return tag->type;
 }
 
+static void enumerator_list() {
+  expect(TK_OPENING_BRACES);
+  int value = -1;
+  while (!consume(TK_CLOSING_BRACES)) {
+    const char* name = expect(TK_IDENT)->name;
+    if (consume(TK_EQUAL))
+      value = consume(TK_NUM)->value;
+    else
+      value++;
+    mkenumconst(name, value);
+    if (!match(TK_CLOSING_BRACES))
+      expect(TK_COMMA);
+  }
+}
+
+static Type enum_specifier() {
+  expect(TK_ENUM);
+  const char* tag_name = match(TK_IDENT) ? consume(TK_IDENT)->name : NULL;
+  if (match(TK_OPENING_BRACES)) {
+    enumerator_list();
+    Type ty = enum_type(tag_name);
+    if (tag_name)
+      mktag(tag_name, ty);
+    return ty;
+  }
+
+  return find_tag(tag_name, TY_ENUM)->type;
+}
+
 // returned value for different kind of declarotor
 //    function:        function node in global
 //    local variable:  nodes for init assign
@@ -973,13 +1034,12 @@ static Type construct_type(Type base, Type ty) {
 }
 
 // TODO: FIX THIS
-// We can't parse an abstract function type (function declaration without name).
-// The parenthese is ambiguous(complicated direct_declarator or function
-// declarator suffix). For example, in "int *(int);", the '(' may be parsed as
-// a complicated direct_declarator, however it should be a suffix indicate a
-// function declarator.  It not a problem for function pointer, for example:
-// "int (*)(int,...)".
-// This should be supported because:
+// We can't parse an abstract function type (function declaration without
+// name). The parenthese is ambiguous(complicated direct_declarator or
+// function declarator suffix). For example, in "int *(int);", the '(' may be
+// parsed as a complicated direct_declarator, however it should be a suffix
+// indicate a function declarator.  It not a problem for function pointer, for
+// example: "int (*)(int,...)". This should be supported because:
 //   (http://port70.net/~nsz/c/c99/n1256.html#6.3.2.1p4)
 static Type declarator(Type base, const char** name) {
   base = pointer(base);
@@ -1088,6 +1148,9 @@ static Type function_declarator(Type ty) {
     if (!match(TK_CLOSING_PARENTHESES))
       expect(TK_COMMA);
   }
+
+  if (match(TK_OPENING_BRACES) && !head.next)
+    link_proto(&head, mkproto(voidtype, NULL));
 
   return function_type(ty, head.next);
 }
@@ -1472,11 +1535,11 @@ static Node postfix_expr() {
     else if (match(TK_DOT) || match(TK_ARROW))
       n = member_selection(n);
     else if (consume(TK_PLUS_PLUS))
-      n = mkunary(A_POSTFIX_INC, n->kind == A_IDENT ? variable(n) : n);
+      n = mkunary(A_POSTFIX_INC, n->kind == A_IDENT ? ordinary(n) : n);
     else if (consume(TK_MINUS_MINUS))
-      n = mkunary(A_POSTFIX_DEC, n->kind == A_IDENT ? variable(n) : n);
+      n = mkunary(A_POSTFIX_DEC, n->kind == A_IDENT ? ordinary(n) : n);
     else
-      return n->kind == A_IDENT ? variable(n) : n;
+      return n->kind == A_IDENT ? ordinary(n) : n;
   }
 }
 
@@ -1533,9 +1596,7 @@ static Node func_call(Node n) {
   Proto param = f->type->proto;
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
-    Node arg = assign_expr();
-    if (is_array(arg->type))
-      arg = mkcvs(array_to_ptr(arg->type), arg);
+    Node arg = unqual_array_to_ptr(assign_expr());
     if (!f->type->proto) {
       arg = mkcvs(default_argument_promoe(arg->type), arg);
     } else if (!param || param->type == voidtype) {
@@ -1543,7 +1604,25 @@ static Node func_call(Node n) {
     } else if (param->type->kind == TY_VARARG) {
       arg = mkcvs(default_argument_promoe(arg->type), arg);
     } else {
+      // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p7
+      if (is_arithmetic(param->type) && is_arithmetic(arg->type)) {
+      } else if (is_ptr(param->type) && arg->kind == A_NUM &&
+                 n->right->intvalue == 0) {
+      } else if (is_ptr(param->type) && is_ptr(arg->type)) {
+        if (!is_const(deref_type(param->type)) &&
+            is_const(deref_type(arg->type)))
+          error("function call discards const");
+        if (!is_compatible_type(unqual(param->type), arg->type))
+          error("argument has incompatible type");
+      } else if (is_struct_or_union(param->type) &&
+                 is_struct_or_union(arg->type)) {
+        if (!is_compatible_type(unqual(param->type), arg->type))
+          error("argument has incompatible type");
+      } else
+        error("argument has incompatible type");
+
       arg = mkcvs(unqual(param->type), arg);
+
       param = param->next;
     }
     list_insert(n->args, mklist(arg));
@@ -1555,7 +1634,7 @@ static Node func_call(Node n) {
 
 static Node array_subscripting(Node n) {
   if (n->kind == A_IDENT) {
-    if (!(n = find_var(n->name)))
+    if (!(n = find_symbol(n->name, A_VAR)))
       error("undefined array");
   }
 
@@ -1574,7 +1653,7 @@ static Node array_subscripting(Node n) {
 
 static Node member_selection(Node n) {
   if (n->kind == A_IDENT) {
-    if (!(n = find_var(n->name)))
+    if (!(n = find_symbol(n->name, A_VAR)))
       error("undefined variable");
   }
 
@@ -1598,10 +1677,14 @@ static Node member_selection(Node n) {
   return s;
 }
 
-static Node variable(Node n) {
-  n = find_var(n->name);
+static Node ordinary(Node n) {
+  // http://port70.net/~nsz/c/c99/n1256.html#6.2.3
+
+  n = find_symbol(n->name, A_ANY);
   if (!n)
     error("undefined variable %s", n->name);
+  if (n->kind != A_VAR && n->kind != A_ENUM_CONST)
+    error("unknown identifer kind");
   return n;
 }
 

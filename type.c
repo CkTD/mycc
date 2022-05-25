@@ -63,7 +63,8 @@ const char* type_str(Type t) {
 
 Type type(int kind, Type base, int size) {
   unsigned h;
-  if (kind != TY_FUNCTION && kind != TY_STRUCT) {
+  if (kind != TY_FUNCTION && kind != TY_STRUCT && kind != TY_UNION &&
+      kind != TY_ENUM) {
     h = (kind ^ (unsigned long)base) % TTSIZE;
     for (struct type_entry* i = type_table[h]; i; i = i->next) {
       if (i->t->kind == kind && i->t->base == base && i->t->size == size)
@@ -75,7 +76,8 @@ Type type(int kind, Type base, int size) {
   t->kind = kind;
   t->base = base;
   t->size = size;
-  if (kind != TY_FUNCTION && kind != TY_STRUCT) {
+  if (kind != TY_FUNCTION && kind != TY_STRUCT && kind != TY_UNION &&
+      kind != TY_ENUM) {
     t->str = type_str(t);
     struct type_entry* e = calloc(1, sizeof(struct type_entry));
     e->t = t;
@@ -160,6 +162,12 @@ void update_struct_or_union_type(Type ty, Member member) {
   ty->str = type_str(ty);
 }
 
+Type enum_type(const char* tag) {
+  Type t = type(TY_ENUM, NULL, 4);
+  t->tag = tag;
+  return t;
+}
+
 int is_ptr(Type t) {
   return unqual(t)->kind == TY_POINTER || is_array(t);
 }
@@ -174,7 +182,7 @@ int is_funcion(Type t) {
 
 int is_signed(Type t) {
   return unqual(t) == chartype || unqual(t) == shorttype ||
-         unqual(t) == inttype || unqual(t) == longtype;
+         unqual(t) == inttype || unqual(t) == longtype || is_enum(t);
 }
 
 int is_unsigned(Type t) {
@@ -183,7 +191,7 @@ int is_unsigned(Type t) {
 }
 
 int is_integer(Type t) {
-  return is_signed(t) || is_unsigned(t);
+  return is_signed(t) || is_unsigned(t) || is_enum(t);
 }
 
 int is_arithmetic(Type t) {
@@ -212,6 +220,10 @@ int is_union(Type t) {
 
 int is_struct_or_union(Type t) {
   return unqual(t)->kind == TY_STRUCT || unqual(t)->kind == TY_UNION;
+}
+
+int is_enum(Type t) {
+  return unqual(t)->kind == TY_ENUM;
 }
 
 int is_struct_with_const_member(Type t) {
@@ -338,8 +350,9 @@ Type integral_promote(Type t) {
   if (!is_integer(t))
     return t;
 
-  if (t->size < inttype->size)
+  if (is_enum(t) || t->size < inttype->size)
     return inttype;
+
   return t;
 }
 

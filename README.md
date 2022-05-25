@@ -49,16 +49,16 @@
         - [ ] long long
     - [ ] floaing types
     - [x] pointer types
-    - [ ] enumerated types
+    - [x] enumeration types
     - [x] function types
-    - [x] array types [array declarator](http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2)
+        - [ ] returing struct/union or taking sruct/union as paramenter
+    - [x] array types
+        - [ ] variable length array type
     - [x] struct types
     - [x] union types
-    - [ ] alignment
+    - [ ] type alignment
 - [ ] [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)
-    - [x] integral
-    - [ ] floating
-    - [x] type conversions: arguments to paramenter
+    - [ ] floating types
 - [ ] [Lexical elements](http://port70.net/~nsz/c/c99/n1256.html#6.4)
     - [ ] [constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
         - [x] [integral constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
@@ -70,16 +70,22 @@
         - [x] string literials
             - [x] simple escape
             - [ ] octal/hex escape
+    - [ ] comments
+- [ ] [Statements](http://port70.net/~nsz/c/c99/n1256.html#6.8)
+    - [ ] switch statement
+    - [ ] goto statement
 - [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
-    - [ ] operand constrains: null pointer? type qualifer? type compatible?
+    - [x] operand constrains: null pointer? type qualifer? type compatible?
     - [x] sizeof type-name
     - [x] struct/union related operator
     - [ ] cast operator
 - [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
+    - [ ] [typedef](http://port70.net/~nsz/c/c99/n1256.html#6.7.7)
     - [ ] [initialization](http://port70.net/~nsz/c/c99/n1256.html#6.7.8)
     - [ ] declaration of function without name
     - [ ] [struct/union with bit-field member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p9)
     - [ ] [struct/union with flexible array member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p16)
+- [ ] [Preprocessing](http://port70.net/~nsz/c/c99/n1256.html#6.10)
 - [ ] Others
     - [x] remove print statement by calling library function "printf"
     - [x] for test, compile the source code with gcc, use the output of gcc as target output

@@ -92,14 +92,9 @@ static void gen_load(Type ty) {
     return;
 
   fprintf(stdout, "\tpopq\t%%rax\n");
-  if (ty == chartype || ty == uchartype)
-    fprintf(stdout, "\tmovb\t(%%rax), %%al\n");
-  else if (ty == shorttype || ty == ushorttype)
-    fprintf(stdout, "\tmovw\t(%%rax), %%ax\n");
-  else if (ty == inttype || ty == uinttype)
-    fprintf(stdout, "\tmovl\t(%%rax), %%eax\n");
-  else if (ty == longtype || ty == ulongtype || is_ptr(ty))
-    fprintf(stdout, "\tmovq\t(%%rax), %%rax\n");
+  if (is_scalar(ty))
+    fprintf(stdout, "\tmov%c\t(%%rax), %%%s\n", size_suffix(ty->size),
+            regs(ty->size, RAX));
   else
     error("load unknown type");
 
@@ -111,14 +106,9 @@ static void gen_store(Type ty) {
 
   fprintf(stdout, "\tpopq\t%%rax\n");
   fprintf(stdout, "\tpopq\t%%rdi\n");
-  if (ty == chartype || ty == uchartype)
-    fprintf(stdout, "\tmovb\t%%al, (%%rdi)\n");
-  else if (ty == shorttype || ty == ushorttype)
-    fprintf(stdout, "\tmovw\t%%ax, (%%rdi)\n");
-  else if (ty == inttype || ty == uinttype)
-    fprintf(stdout, "\tmovl\t%%eax, (%%rdi)\n");
-  else if (ty == longtype || ty == ulongtype || is_ptr(ty))
-    fprintf(stdout, "\tmovq\t%%rax, (%%rdi)\n");
+  if (is_scalar(ty))
+    fprintf(stdout, "\tmov%c\t%%%s, (%%rdi)\n", size_suffix(ty->size),
+            regs(ty->size, RAX));
   else if (is_array(ty))
     error("assignment to expression with array type");
   else if (is_struct_or_union(ty)) {
@@ -418,6 +408,7 @@ static void gen_shift(Node n) {
 static void gen_expr(Node n) {
   switch (n->kind) {
     case A_NUM:
+    case A_ENUM_CONST:
       gen_iconst(n);
       return;
     case A_STRING_LITERAL:
