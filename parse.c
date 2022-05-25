@@ -33,8 +33,8 @@ static Token consume(int kind) {
   return NULL;
 }
 
-int match_type_spec() {
-  return t->kind >= TK_VOID && t->kind <= TK_STRUCT;
+static int match_specifier() {
+  return t->kind >= TK_VOID && t->kind <= TK_UNION;
 }
 /*******************
  * create AST Node *
@@ -212,7 +212,8 @@ static Node mkbinary(int kind, Node left, Node right) {
       }
       if (!is_compatible_type(unqual(n->left->type), n->right->type))
         error("assign with incompatible type");
-    } else if (is_struct(n->left->type) && is_struct(n->right->type)) {
+    } else if (is_struct_or_union(n->left->type) &&
+               is_struct_or_union(n->right->type)) {
       if (!is_compatible_type(unqual(n->left->type), n->right->type))
         error("assign with incompatible type");
     } else
@@ -551,7 +552,7 @@ static Node mktag(const char* name, Type ty) {
   if (n) {
     if (!ty->member) {
     } else if (!n->type->member) {
-      update_struct_type(n->type, ty->member);
+      update_struct_or_union_type(n->type, ty->member);
     } else {
       error("redefine tag \"%s\"", name);
     }
@@ -585,8 +586,8 @@ static Node mktag(const char* name, Type ty) {
 // type_qualifier:          { 'const' | 'volatile' | 'restrict' }
 // type_specifier:          { 'void' | 'char' | 'int' | 'short' |
 //                            'long' | 'unsigned'|'signed'
-//                            'struct_specifier' }
-// struct_specifier:        'struct' identifier?
+//                            'struct_union_specifier' }
+// struct_union_specifier:  {'struct' | 'union'} identifier?
 //                          { '{' struct_declaration_list '}' }?
 // struct_declaration_list: { {type_qualifier|type_specifier}+
 //                           decalrator {',' declarator}      ';' }+
@@ -638,7 +639,7 @@ static Node mktag(const char* name, Type ty) {
 static Node trans_unit();
 static Node declaration();
 static Type declaration_specifiers();
-static Type struct_specifier();
+static Type struct_union_specifier();
 static Member struct_declaration_list();
 static Node init_declarator(Type ty);  // scope????
 static Type declarator(Type ty, const char** name);
@@ -697,7 +698,7 @@ static Node declaration() {
   Type ty = declaration_specifiers();
 
   if (consume(TK_SIMI)) {
-    if (!is_struct(ty))
+    if (!is_struct_or_union(ty))
       error("declare nothing");
     return NULL;
   }
@@ -743,7 +744,7 @@ enum {
 
 static Type declaration_specifiers() {
   Type ty;
-  Type struct_type = NULL;
+  Type struct_or_union_type = NULL;
   int specifiers = 0;
   for (;;) {
     if (consume(TK_VOID)) {
@@ -785,16 +786,16 @@ static Type declaration_specifiers() {
       set_specifier(specifiers, SPEC_VOLATILE);
     } else if (consume(TK_RESTRICT)) {
       set_specifier(specifiers, SPEC_RESTRICT);
-    } else if (match(TK_STRUCT)) {
-      struct_type = struct_specifier();
+    } else if (match(TK_STRUCT) || match(TK_UNION)) {
+      struct_or_union_type = struct_union_specifier();
     } else
       break;
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.2
   int type_spec = specifiers & ((1 << 8) - 1);
-  if (struct_type) {
-    ty = struct_type;
+  if (struct_or_union_type) {
+    ty = struct_or_union_type;
     if (type_spec)
       error("two or more data types in declaration specifiers");
   } else {
@@ -904,20 +905,20 @@ static Member struct_declaration_list() {
   return head.next;
 }
 
-static Type struct_specifier() {
-  expect(TK_STRUCT);
+static Type struct_union_specifier() {
+  int ty_kind = consume(TK_STRUCT) ? TY_STRUCT : (expect(TK_UNION), TY_UNION);
   const char* name = match(TK_IDENT) ? consume(TK_IDENT)->name : NULL;
   Member member = struct_declaration_list();
   if (member) {
-    Type ty = struct_type(member, name);
+    Type ty = struct_or_union_type(member, name, ty_kind);
     if (name)
       mktag(name, ty);
     return ty;
   }
 
-  Node tag = find_tag(name, TY_STRUCT);
+  Node tag = find_tag(name, ty_kind);
   if (!tag)
-    tag = mktag(name, struct_type(NULL, name));
+    tag = mktag(name, struct_or_union_type(NULL, name, ty_kind));
   return tag->type;
 }
 
@@ -1179,7 +1180,7 @@ static Node comp_stat(int reuse_scope) {
   if (!reuse_scope)
     enter_scope();
   while (t->kind != TK_CLOSING_BRACES) {
-    if (match_type_spec())
+    if (match_specifier())
       last->next = declaration();
     else
       last->next = statement(0);
@@ -1448,7 +1449,7 @@ static Node unary_expr() {
   }
   if (consume(TK_SIZEOF)) {
     Token back = t;
-    if (consume(TK_OPENING_PARENTHESES) && match_type_spec()) {
+    if (consume(TK_OPENING_PARENTHESES) && match_specifier()) {
       Node u = mknode(A_NOOP);
       u->type = type_name();
       expect(TK_CLOSING_PARENTHESES);
@@ -1584,14 +1585,14 @@ static Node member_selection(Node n) {
   } else
     expect(TK_DOT);
 
-  if (!is_struct(n->type))
-    error("select member in something not in structure");
+  if (!is_struct_or_union(n->type))
+    error("select member in something a structure/union");
 
   Node s = mknode(A_MEMBER_SELECTION);
   s->structure = n;
-  s->member = get_struct_member(n->type, expect(TK_IDENT)->name);
+  s->member = get_struct_or_union_member(n->type, expect(TK_IDENT)->name);
   if (!s->member)
-    error("struct has no wanted member");
+    error("struct/union has no wanted member");
   s->type = is_const(n->type) ? const_type(s->member->type) : s->member->type;
 
   return s;

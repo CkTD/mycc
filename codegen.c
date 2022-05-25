@@ -88,7 +88,7 @@ static void gen_load(Type ty) {
 
   if (is_array(ty))  // for array, the address is it's value
     return;
-  if (is_struct(ty))  // for struct, keep the address
+  if (is_struct_or_union(ty))  // for struct, keep the address
     return;
 
   fprintf(stdout, "\tpopq\t%%rax\n");
@@ -121,7 +121,7 @@ static void gen_store(Type ty) {
     fprintf(stdout, "\tmovq\t%%rax, (%%rdi)\n");
   else if (is_array(ty))
     error("assignment to expression with array type");
-  else if (is_struct(ty)) {
+  else if (is_struct_or_union(ty)) {
     int offset = 0;
     for (int s = 8; s; s >>= 1)
       for (; ty->size - offset >= s; offset += s) {

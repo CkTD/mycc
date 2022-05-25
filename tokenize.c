@@ -62,6 +62,7 @@ const char* token_str[] = {
     [TK_VOLATILE] = "volatile",
     [TK_RESTRICT] = "restrict",
     [TK_STRUCT] = "struct",
+    [TK_UNION] = "union",
     [TK_SIZEOF] = "sizeof",
     [TK_IF] = "if",
     [TK_ELSE] = "else",

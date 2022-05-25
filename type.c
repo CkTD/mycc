@@ -45,10 +45,11 @@ const char* type_str(Type t) {
       p = p->next;
     }
     sprintf(buffer + i, "}");
-  } else if (t->kind == TY_STRUCT) {
+  } else if (t->kind == TY_STRUCT || t->kind == TY_UNION) {
     int i = 0;
     Member m = t->member;
-    i += sprintf(buffer, "struct %s{", t->tag ? t->tag : "");
+    i += sprintf(buffer, "%s %s{", t->kind == TY_STRUCT ? "struct" : "union",
+                 t->tag ? t->tag : "");
     while (m) {
       i += sprintf(buffer + i, "%s %s;", m->type->str, m->name);
       m = m->next;
@@ -130,14 +131,14 @@ Type unqual(Type t) {
   return is_qual(t) ? t->base : t;
 }
 
-Type struct_type(Member member, const char* tag) {
-  Type ty = type(TY_STRUCT, NULL, 0);
+Type struct_or_union_type(Member member, const char* tag, int kind) {
+  Type ty = type(kind, NULL, 0);
   ty->tag = tag;
-  update_struct_type(ty, member);
+  update_struct_or_union_type(ty, member);
   return ty;
 }
 
-Member get_struct_member(Type t, const char* name) {
+Member get_struct_or_union_member(Type t, const char* name) {
   for (Member m = unqual(t)->member; m; m = m->next) {
     if (m->name == name)
       return m;
@@ -145,13 +146,16 @@ Member get_struct_member(Type t, const char* name) {
   return NULL;
 }
 
-void update_struct_type(Type ty, Member member) {
+void update_struct_or_union_type(Type ty, Member member) {
   ty->member = member;
+  ty->size = 0;
   for (Member m = ty->member; m; m = m->next) {
     if (m->type->size == 0)
       error("not implemented");
-    m->offset = ty->size;
-    ty->size += m->type->size;
+
+    m->offset = is_struct(ty) ? ty->size : 0;
+    ty->size =
+        is_struct(ty) ? ty->size + m->type->size : max(ty->size, m->type->size);
   }
   ty->str = type_str(ty);
 }
@@ -200,6 +204,14 @@ int is_const(Type t) {
 
 int is_struct(Type t) {
   return unqual(t)->kind == TY_STRUCT;
+}
+
+int is_union(Type t) {
+  return unqual(t)->kind == TY_UNION;
+}
+
+int is_struct_or_union(Type t) {
+  return unqual(t)->kind == TY_STRUCT || unqual(t)->kind == TY_UNION;
 }
 
 int is_struct_with_const_member(Type t) {
@@ -269,7 +281,7 @@ int is_compatible_type(Type t1, Type t2) {
     return 1;
   }
 
-  if (is_struct(t1)) {
+  if (is_struct_or_union(t1)) {
     if (t1->tag != t2->tag)
       return 0;
     Member m1 = t1->member, m2 = t2->member;

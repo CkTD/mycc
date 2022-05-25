@@ -52,8 +52,8 @@
     - [ ] enumerated types
     - [x] function types
     - [x] array types [array declarator](http://port70.net/~nsz/c/c99/n1256.html#6.7.5.2)
-    - [ ] struct types
-    - [ ] union types
+    - [x] struct types
+    - [x] union types
     - [ ] alignment
 - [ ] [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)
     - [x] integral
@@ -73,12 +73,13 @@
 - [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
     - [ ] operand constrains: null pointer? type qualifer? type compatible?
     - [x] sizeof type-name
-    - [ ] struct/union related operator
+    - [x] struct/union related operator
     - [ ] cast operator
 - [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [ ] [initialization](http://port70.net/~nsz/c/c99/n1256.html#6.7.8)
     - [ ] declaration of function without name
-    - [ ] [struct with bit-field member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p9)
+    - [ ] [struct/union with bit-field member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p9)
+    - [ ] [struct/union with flexible array member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p16)
 - [ ] Others
     - [x] remove print statement by calling library function "printf"
     - [x] for test, compile the source code with gcc, use the output of gcc as target output

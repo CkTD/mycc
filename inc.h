@@ -10,6 +10,8 @@ const char* string(const char* s);
 typedef struct type* Type;
 typedef struct node* Node;
 
+#define max(x, y) (((x) > (y)) ? (x) : (y))
+
 /*************
  *   type    *
  *************/
@@ -31,6 +33,7 @@ enum {
   TY_VARARG,
   TY_PLACEHOLDER,
   TY_STRUCT,
+  TY_UNION,
 };
 
 extern Type voidtype;
@@ -78,9 +81,9 @@ Type array_to_ptr(Type a);
 Type function_type(Type t, Proto p);
 Type const_type(Type t);
 Type unqual(Type t);
-Type struct_type(Member member, const char* tag);
-Member get_struct_member(Type t, const char* name);
-void update_struct_type(Type ty, Member member);
+Type struct_or_union_type(Member member, const char* tag, int kind);
+Member get_struct_or_union_member(Type t, const char* name);
+void update_struct_or_union_type(Type ty, Member member);
 
 int is_ptr(Type t);
 int is_array(Type t);
@@ -93,6 +96,8 @@ int is_scalar(Type t);
 int is_qual(Type t);
 int is_const(Type t);
 int is_struct(Type t);
+int is_union(Type t);
+int is_struct_or_union(Type t);
 int is_struct_with_const_member(Type t);
 int is_compatible_type(Type t1, Type t2);
 Type composite_type(Type t1, Type t2);
@@ -162,6 +167,7 @@ enum {
   TK_VOLATILE,
   TK_RESTRICT,
   TK_STRUCT,
+  TK_UNION,
   TK_SIZEOF,
   TK_IF,
   TK_ELSE,
