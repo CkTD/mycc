@@ -1,3 +1,7 @@
+# mycc
+
+A toy c compiler for learning purpose, support some C99 features and generate code for x86_64.
+
 # References
 
 ## C
