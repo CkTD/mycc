@@ -1,11 +1,9 @@
 #include "inc.h"
 
 int main(int argc, char* argv[]) {
-  Token t = tokenize(argv[1]);
-
-  parse(t);
-
+  parse_arguments(argc, argv);
+  tokenize();
+  parse();
   codegen();
-
   return 0;
 }

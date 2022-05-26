@@ -1,39 +1,5 @@
 #include "inc.h"
 
-/***********************
- * handle input tokens *
- ***********************/
-static Token t;  // token to be processed
-
-static int match(int kind) {
-  return t->kind == kind;
-}
-
-static Token expect(int kind) {
-  Token c = t;
-
-  if (!match(kind)) {
-    error("parse: token of %s expected but got %s", token_str[kind],
-          token_str[t->kind]);
-  }
-  t = t->next;
-  return c;
-}
-
-static Token consume(int kind) {
-  Token c = t;
-
-  if (match(kind)) {
-    t = t->next;
-    return c;
-  }
-  return NULL;
-}
-
-static int match_specifier() {
-  return t->kind >= TK_VOID && t->kind <= TK_ENUM;
-}
-
 /*******************
  * create AST Node *
  *******************/
@@ -170,8 +136,7 @@ static Node mkunary(int kind, Node left) {
     return s;
   }
 
-  error("invalid unary operator");
-  return NULL;
+  assert(0);
 }
 
 static Node mkbinary(int kind, Node left, Node right) {
@@ -330,8 +295,7 @@ static Node mkbinary(int kind, Node left, Node right) {
     error("invalid operands to binary");
   }
 
-  error("invalid binary operator");
-  return NULL;
+  assert(0);
 }
 
 static Node mkternary(Node cond, Node left, Node right) {
@@ -354,8 +318,7 @@ static Node mkternary(Node cond, Node left, Node right) {
     return n;
   }
 
-  error("invalid operand");
-  return NULL;
+  assert(0);
 }
 
 static Node mkvar(const char* name, Type ty) {
@@ -579,7 +542,7 @@ static Node member_selection(Node n);
 static Node ordinary(Node n);
 
 static void trans_unit() {
-  while (t)
+  while (token())
     declaration();
 }
 
@@ -906,8 +869,7 @@ static Type construct_type(Type base, Type ty) {
   if (is_funcion(ty))
     return function_type(construct_type(base, ty->base), ty->proto);
 
-  error("can't construct type");
-  return NULL;
+  assert(0);
 }
 
 // TODO: FIX THIS
@@ -1117,7 +1079,7 @@ static Node comp_stat(int reuse_scope) {
   expect(TK_OPENING_BRACES);
   if (!reuse_scope)
     enter_scope();
-  while (t->kind != TK_CLOSING_BRACES) {
+  while (!match(TK_CLOSING_BRACES)) {
     if (match_specifier())
       last->next = declaration();
     else
@@ -1386,14 +1348,14 @@ static Node unary_expr() {
     return mkbinary(A_ASSIGN, u, mkbinary(A_SUB, u, mkicons(1)));
   }
   if (consume(TK_SIZEOF)) {
-    Token back = t;
+    Token back = token();
     if (consume(TK_OPENING_PARENTHESES) && match_specifier()) {
       Node u = mknode(A_NOOP);
       u->type = type_name();
       expect(TK_CLOSING_PARENTHESES);
       return mkunary(A_SIZE_OF, u);
     }
-    t = back;
+    set_token(back);
     return mkunary(A_SIZE_OF, unary_expr());
   }
 
@@ -1447,7 +1409,7 @@ static Node primary_expr() {
     return n;
   }
 
-  error("parse: primary get unexpected token \"%s\"", t->name);
+  error("parse: primary get unexpected token \"%s\"", token()->name);
   return NULL;
 }
 
@@ -1563,7 +1525,6 @@ static Node ordinary(Node n) {
   return n;
 }
 
-void parse(Token root) {
-  t = root;
+void parse() {
   trans_unit();
 }

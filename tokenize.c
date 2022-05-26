@@ -1,6 +1,6 @@
 #include "inc.h"
 
-const char* token_str[] = {
+static const char* token_str[] = {
     // punctuation
     [TK_OPENING_BRACES] = "{",
     [TK_CLOSING_BRACES] = "}",
@@ -73,7 +73,51 @@ const char* token_str[] = {
     // others
     [TK_IDENT] = "identifier",
     [TK_NUM] = "number",
-    [TK_STRING] = "string"};
+    [TK_STRING] = "string",
+};
+
+// token currently being processed
+static Token ct;
+
+Token token() {
+  return ct;
+}
+
+void set_token(Token t) {
+  ct = t;
+}
+
+int match(int kind) {
+  return ct->kind == kind;
+}
+
+int match_specifier() {
+  return ct->kind >= TK_VOID && ct->kind <= TK_ENUM;
+}
+
+Token expect(int kind) {
+  Token t = ct;
+
+  if (!match(kind))
+    error("parse: token of %s expected but got %s", token_str[kind],
+          token_str[ct->kind]);
+
+  ct = ct->next;
+  return t;
+}
+
+Token consume(int kind) {
+  if (match(kind)) {
+    Token t = ct;
+    ct = ct->next;
+    return t;
+  }
+  return NULL;
+}
+
+static char* cc;  // character currently being processed
+static char* ec;  // last character
+static char* buff;
 
 static Token mktoken(int kind, const char* name) {
   Token t = malloc(sizeof(struct token));
@@ -83,19 +127,18 @@ static Token mktoken(int kind, const char* name) {
   return t;
 }
 
-static const char* p;
-static char buff[4096];
-
 static Token string_literal() {
-  char quote = *p++;
+  char quote = *cc++;
   char* out = buff;
-  while (*p != quote && *p != 0 && *p != '\n') {
-    if (*p == '\\') {  // escape-sequence
-      p++;
-      switch (*p) {
+  while (cc < ec && *cc != quote && *cc != '\n') {
+    if (!*cc) {
+      error("null character");
+    } else if (*cc == '\\') {  // escape-sequence
+      cc++;
+      switch (*cc) {
         case '\'':
         case '"':
-          *out++ = *p;
+          *out++ = *cc;
           break;
         case 'a':
           *out++ = '\a';
@@ -125,12 +168,12 @@ static Token string_literal() {
           break;
       }
     } else {
-      *out++ = *p;
+      *out++ = *cc;
     }
-    p++;
+    cc++;
   }
 
-  if (*p++ != quote)
+  if (*cc++ != quote)
     error("missing terminating %c character", quote);
 
   return mktoken(TK_STRING, stringn(buff, out - buff));
@@ -183,50 +226,56 @@ const char* escape(const char* s) {
   return stringn(buff, out - buff);
 }
 
-Token tokenize(const char* src) {
-  p = src;
-  struct token head = {0};
-  Token last = &head;
+void tokenize() {
+  int length = read_source(&cc);
+  ec = cc + length;
+  buff = malloc(length);
 
-  while (*p) {
+  Token* tail = &ct;
+
+  while (cc < ec) {
     Token n = NULL;
 
+    if (!*cc)
+      error("null character");
+
     // space or tab
-    while (isspace(*p)) {
-      p++;
+    if (isspace(*cc)) {
+      cc++;
+      continue;
     }
 
     // number
-    if (isdigit(*p)) {  // 0-9
-      n = mktoken(TK_NUM, stringn(p, 0));
-      const char* b = p;
-      while (isdigit(*++p))
+    if (isdigit(*cc)) {  // 0-9
+      n = mktoken(TK_NUM, stringn(cc, 0));
+      const char* b = cc;
+      while (isdigit(*++cc))
         ;
-      n = mktoken(TK_NUM, stringn(b, p - b));
+      n = mktoken(TK_NUM, stringn(b, cc - b));
       n->value = strtol(b, NULL, 10);
     }
     // string literal
-    else if (*p == '"') {
+    else if (*cc == '"') {
       n = string_literal();
     }
     // punc
-    else if (ispunct(*p)) {
+    else if (ispunct(*cc)) {
       for (int k = TK_OPENING_BRACES; k <= TK_TILDE; k++) {
         int len = strlen(token_str[k]);
-        if (!strncmp(p, token_str[k], len)) {
-          p += len;
+        if (!strncmp(cc, token_str[k], len)) {
+          cc += len;
           n = mktoken(k, token_str[k]);
           break;
         }
       }
     }
     // keywords or identifer
-    else if (isalpha(*p)) {
-      const char* b = p;
+    else if (isalpha(*cc)) {
+      const char* b = cc;
       do {
-        p++;
-      } while (isalpha(*p) || isdigit(*p) || *p == '_');
-      const char* name = stringn(b, p - b);
+        cc++;
+      } while (isalpha(*cc) || isdigit(*cc) || *cc == '_');
+      const char* name = stringn(b, cc - b);
       n = NULL;
       for (int kind = TK_VOID; kind <= TK_RETURN; kind++) {
         if (name == string(token_str[kind]))
@@ -236,10 +285,8 @@ Token tokenize(const char* src) {
     }
 
     if (!n)
-      error("tokenize: syntax error, unknown \"%c\"", *p);
+      error("tokenize: syntax error, unknown \"%c\"", *cc);
 
-    last = last->next = n;
+    tail = &(*tail = n)->next;
   }
-
-  return head.next;
 }

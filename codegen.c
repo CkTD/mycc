@@ -34,10 +34,8 @@ static const char* regs(int size, int name) {
       [8] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "r10", "r11", "rsp",
              "rbx", "rbp", "r12", "r13", "r14", "r15"}};
 
-  if (name < RDI || name > R15)
-    error("unknown name");
-  if (size != 1 && size != 2 && size != 4 && size != 8)
-    error("unknown size");
+  assert(name >= RDI && name <= R15);
+  assert(size == 1 || size == 2 || size == 4 || size == 8);
   return regs[size][name];
 }
 
@@ -54,8 +52,7 @@ static char size_suffix(int size) {
     case 16:
       return 'o';
   }
-  error("size suffix %d", size);
-  return '?';
+  assert(0);
 }
 
 // unique label
@@ -77,8 +74,8 @@ static void gen_iconst(Node n) {
   // TODO: to hold a unsigned int , maybe use long type for n->intvalue?
   if (n->type != inttype && n->type != uinttype)
     error("a number constant must have type int");
-  fprintf(stdout, "\tmovl\t$%d, %%eax\n", n->intvalue);
-  fprintf(stdout, "\tpushq\t%%rax\n");
+  output("\tmovl\t$%d, %%eax\n", n->intvalue);
+  output("\tpushq\t%%rax\n");
 }
 
 static void gen_load(Type ty) {
@@ -89,48 +86,48 @@ static void gen_load(Type ty) {
   if (is_struct_or_union(ty))  // for struct, keep the address
     return;
 
-  fprintf(stdout, "\tpopq\t%%rax\n");
+  output("\tpopq\t%%rax\n");
   if (is_scalar(ty))
-    fprintf(stdout, "\tmov%c\t(%%rax), %%%s\n", size_suffix(ty->size),
-            regs(ty->size, RAX));
+    output("\tmov%c\t(%%rax), %%%s\n", size_suffix(ty->size),
+           regs(ty->size, RAX));
   else
     error("load unknown type");
 
-  fprintf(stdout, "\tpushq\t%%rax\n");
+  output("\tpushq\t%%rax\n");
 }
 
 static void gen_store(Type ty) {
   ty = unqual(ty);
 
-  fprintf(stdout, "\tpopq\t%%rax\n");
-  fprintf(stdout, "\tpopq\t%%rdi\n");
+  output("\tpopq\t%%rax\n");
+  output("\tpopq\t%%rdi\n");
   if (is_scalar(ty))
-    fprintf(stdout, "\tmov%c\t%%%s, (%%rdi)\n", size_suffix(ty->size),
-            regs(ty->size, RAX));
+    output("\tmov%c\t%%%s, (%%rdi)\n", size_suffix(ty->size),
+           regs(ty->size, RAX));
   else if (is_array(ty))
     error("assignment to expression with array type");
   else if (is_struct_or_union(ty)) {
     int offset = 0;
     for (int s = 8; s; s >>= 1)
       for (; ty->size - offset >= s; offset += s) {
-        fprintf(stdout, "\tmov%c\t%d(%%rax), %%%s\n", size_suffix(s), offset,
-                regs(s, RSI));
-        fprintf(stdout, "\tmov%c\t%%%s, %d(%%rdi)\n", size_suffix(s),
-                regs(s, RSI), offset);
+        output("\tmov%c\t%d(%%rax), %%%s\n", size_suffix(s), offset,
+               regs(s, RSI));
+        output("\tmov%c\t%%%s, %d(%%rdi)\n", size_suffix(s), regs(s, RSI),
+               offset);
       }
   } else
     error("store unknown type");
 
-  fprintf(stdout, "\tpushq\t%%rax\n");
+  output("\tpushq\t%%rax\n");
 }
 
 static void gen_addr(Node n) {
   if (n->kind == A_VAR) {
     if (n->is_global)
-      fprintf(stdout, "\tleaq\t%s(%%rip), %%rax\n", n->name);
+      output("\tleaq\t%s(%%rip), %%rax\n", n->name);
     else
-      fprintf(stdout, "\tleaq\t-%d(%%rbp), %%rax\n", n->offset);
-    fprintf(stdout, "\tpushq\t%%rax\n");
+      output("\tleaq\t-%d(%%rbp), %%rax\n", n->offset);
+    output("\tpushq\t%%rax\n");
     return;
   }
 
@@ -154,38 +151,38 @@ static void gen_addr(Node n) {
       gen_expr(n->array);
 
     gen_expr(n->index);
-    fprintf(stdout, "\tpopq\t%%rax\n");
-    fprintf(stdout, "\tpopq\t%%rdi\n");
+    output("\tpopq\t%%rax\n");
+    output("\tpopq\t%%rdi\n");
     int size = n->array->type->base->size;
     if (size <= 8) {
-      fprintf(stdout, "\tleaq\t(%%rdi, %%rax, %d), %%rax\n", size);
+      output("\tleaq\t(%%rdi, %%rax, %d), %%rax\n", size);
     } else {
-      fprintf(stdout, "\timulq\t$%d, %%rax\n", size);
-      fprintf(stdout, "\tleaq\t(%%rdi, %%rax), %%rax\n");
+      output("\timulq\t$%d, %%rax\n", size);
+      output("\tleaq\t(%%rdi, %%rax), %%rax\n");
     }
-    fprintf(stdout, "\tpushq\t%%rax\n");
+    output("\tpushq\t%%rax\n");
     return;
   }
 
   if (n->kind == A_MEMBER_SELECTION) {
     gen_addr(n->structure);
-    fprintf(stdout, "\tpopq\t%%rax\n");
-    fprintf(stdout, "\taddq\t$%d, %%rax\n", n->member->offset);
-    fprintf(stdout, "\tpushq\t%%rax\n");
+    output("\tpopq\t%%rax\n");
+    output("\taddq\t$%d, %%rax\n", n->member->offset);
+    output("\tpushq\t%%rax\n");
     return;
   }
 
   if (n->kind == A_STRING_LITERAL) {
-    fprintf(stdout, "\tleaq\t%s(%%rip), %%rax\n", n->name);
-    fprintf(stdout, "\tpushq\t%%rax\n");
+    output("\tleaq\t%s(%%rip), %%rax\n", n->name);
+    output("\tpushq\t%%rax\n");
     return;
   }
 
-  error("generate address for unknown kind");
+  assert(0);  // generate address for unknown kind
 }
 
 static void gen_funccall(Node n) {
-  fprintf(stdout, "// call function \"%s\"\n", n->name);
+  output("// call function \"%s\"\n", n->name);
   Node node;
 
   int nargs = list_length(n->args);
@@ -193,19 +190,19 @@ static void gen_funccall(Node n) {
   int nmemargs = nargs - nregargs;
 
   if (nmemargs % 2)
-    fprintf(stdout, "\tsubq\t$8, %%rsp\n");
+    output("\tsubq\t$8, %%rsp\n");
 
   list_for_each_reverse(n->args, node) gen_expr(node->body);
 
   for (int i = 0; i < nregargs; i++) {
-    fprintf(stdout, "\tpopq\t%%%s\n", regs(8, i));
+    output("\tpopq\t%%%s\n", regs(8, i));
   }
 
-  fprintf(stdout, "\tcall\t%s\n", n->name);
+  output("\tcall\t%s\n", n->name);
   if (nmemargs % 2)
-    fprintf(stdout, "\taddq\t$8, %%rsp\n");
-  fprintf(stdout, "\tpushq\t%%rax\n");
-  fprintf(stdout, "// ---- call function \"%s\"\n", n->name);
+    output("\taddq\t$8, %%rsp\n");
+  output("\tpushq\t%%rax\n");
+  output("// ---- call function \"%s\"\n", n->name);
 }
 
 static void gen_conversion(Node n) {
@@ -215,11 +212,11 @@ static void gen_conversion(Node n) {
   int src_size = is_array(n->body->type) ? 8 : unqual(n->body->type)->size;
   int dst_size = unqual(n->type)->size;
   if (src_size < dst_size) {
-    fprintf(stdout, "\tpopq\t%%rax\n");
-    fprintf(stdout, "\tmov%c%c%c\t%%%s, %%%s\n",
-            is_signed(n->body->type) ? 's' : 'z', size_suffix(src_size),
-            size_suffix(dst_size), regs(src_size, RAX), regs(dst_size, RAX));
-    fprintf(stdout, "\tpushq\t%%rax\n");
+    output("\tpopq\t%%rax\n");
+    output("\tmov%c%c%c\t%%%s, %%%s\n", is_signed(n->body->type) ? 's' : 'z',
+           size_suffix(src_size), size_suffix(dst_size), regs(src_size, RAX),
+           regs(dst_size, RAX));
+    output("\tpushq\t%%rax\n");
   }
 }
 
@@ -227,41 +224,41 @@ static void gen_ternary(Node n) {
   const char* rlabel = new_label();
   const char* elabel = new_label();
   gen_expr(n->cond);
-  fprintf(stdout, "\tpopq\t%%rax\n");
-  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->cond->type->size),
-          regs(n->cond->type->size, RAX));
-  fprintf(stdout, "\tje\t%s\n", rlabel);
+  output("\tpopq\t%%rax\n");
+  output("\tcmp%c\t$0, %%%s\n", size_suffix(n->cond->type->size),
+         regs(n->cond->type->size, RAX));
+  output("\tje\t%s\n", rlabel);
   gen_expr(n->left);
-  fprintf(stdout, "\tjmp\t%s\n", elabel);
-  fprintf(stdout, "%s:\n", rlabel);
+  output("\tjmp\t%s\n", elabel);
+  output("%s:\n", rlabel);
   gen_expr(n->right);
-  fprintf(stdout, "%s:\n", elabel);
+  output("%s:\n", elabel);
 }
 
 static void gen_unary_arithmetic(Node n) {
   gen_expr(n->left);
-  fprintf(stdout, "\tpopq\t%%rax\n");
+  output("\tpopq\t%%rax\n");
   if (n->kind == A_B_NOT) {
-    fprintf(stdout, "\tnot%c\t%%%s\n", size_suffix(n->type->size),
-            regs(n->type->size, RAX));
+    output("\tnot%c\t%%%s\n", size_suffix(n->type->size),
+           regs(n->type->size, RAX));
   } else if (n->kind == A_MINUS) {
-    fprintf(stdout, "\tneg%c\t%%%s\n", size_suffix(n->type->size),
-            regs(n->type->size, RAX));
+    output("\tneg%c\t%%%s\n", size_suffix(n->type->size),
+           regs(n->type->size, RAX));
   } else if (n->kind == A_PLUS) {
   } else if (n->kind == A_L_NOT) {
     const char* olabel = new_label();
     const char* elabel = new_label();
-    fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
-            regs(n->left->type->size, RAX));
-    fprintf(stdout, "\tje\t%s\n", olabel);
-    fprintf(stdout, "\tmovl\t$0, %%eax\n");
-    fprintf(stdout, "\tjmp\t%s\n", elabel);
-    fprintf(stdout, "%s:\n", olabel);
-    fprintf(stdout, "\tmovl\t$1, %%eax\n");
-    fprintf(stdout, "%s:\n", elabel);
+    output("\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
+           regs(n->left->type->size, RAX));
+    output("\tje\t%s\n", olabel);
+    output("\tmovl\t$0, %%eax\n");
+    output("\tjmp\t%s\n", elabel);
+    output("%s:\n", olabel);
+    output("\tmovl\t$1, %%eax\n");
+    output("%s:\n", elabel);
   }
 
-  fprintf(stdout, "\tpushq\t%%rax\n");
+  output("\tpushq\t%%rax\n");
 }
 
 static void gen_postfix_incdec(Node n) {
@@ -269,14 +266,13 @@ static void gen_postfix_incdec(Node n) {
   gen_load(n->type);
 
   gen_addr(n->left);
-  fprintf(stdout, "\tpopq\t%%rax\n");
+  output("\tpopq\t%%rax\n");
   if (is_arithmetic(n->type))
-    fprintf(stdout, "\t%s%c\t(%%rax)\n",
-            n->kind == A_POSTFIX_INC ? "inc" : "dec",
-            size_suffix(n->type->size));
+    output("\t%s%c\t(%%rax)\n", n->kind == A_POSTFIX_INC ? "inc" : "dec",
+           size_suffix(n->type->size));
   else  // pointer
-    fprintf(stdout, "\t%sq\t$%d, (%%rax)\n",
-            n->kind == A_POSTFIX_INC ? "add" : "sub", n->type->base->size);
+    output("\t%sq\t$%d, (%%rax)\n", n->kind == A_POSTFIX_INC ? "add" : "sub",
+           n->type->base->size);
 }
 
 // binary expressions
@@ -292,25 +288,24 @@ static void gen_ementary_arithmetic(Node n) {
     inst = "imul";
   else {
     char from = size_suffix(n->type->size), to = size_suffix(n->type->size * 2);
-    fprintf(stdout, "\tc%c%c\n", from == 'l' ? 'd' : from,
-            to == 'l' ? 'd' : to);
-    fprintf(stdout, "\t%sdiv%c\t%%%s\n", is_signed(n->type) ? "i" : "",
-            size_suffix(n->type->size), regs(n->type->size, RDI));
+    output("\tc%c%c\n", from == 'l' ? 'd' : from, to == 'l' ? 'd' : to);
+    output("\t%sdiv%c\t%%%s\n", is_signed(n->type) ? "i" : "",
+           size_suffix(n->type->size), regs(n->type->size, RDI));
     if (n->kind == A_MOD)
-      fprintf(stdout, "\tmov%c\t%%%s, %%%s\n", size_suffix(n->type->size),
-              regs(n->type->size, RDX), regs(n->type->size, RAX));
+      output("\tmov%c\t%%%s, %%%s\n", size_suffix(n->type->size),
+             regs(n->type->size, RDX), regs(n->type->size, RAX));
     return;
   }
 
-  fprintf(stdout, "\t%s%c\t%%%s, %%%s\n", inst, size_suffix(n->type->size),
-          regs(n->type->size, RDI), regs(n->type->size, RAX));
+  output("\t%s%c\t%%%s, %%%s\n", inst, size_suffix(n->type->size),
+         regs(n->type->size, RDI), regs(n->type->size, RAX));
 }
 
 static void gen_compare(Node n) {
   if (n->type == inttype || n->type == uinttype)
-    fprintf(stdout, "\tcmpl\t%%edi, %%eax\n");
+    output("\tcmpl\t%%edi, %%eax\n");
   else if (n->type == longtype || n->type == ulongtype)
-    fprintf(stdout, "\tcmpq\t%%rdi, %%rax\n");
+    output("\tcmpq\t%%rdi, %%rax\n");
   char* cd;
   if (is_signed(n->left->type)) {
     if (n->kind == A_EQ)
@@ -339,41 +334,42 @@ static void gen_compare(Node n) {
     else if (n->kind == A_LE)
       cd = "be";
   } else
-    error("compare what?");
-  fprintf(stdout, "\tset%s\t%%al\n", cd);
-  fprintf(stdout, "\tmovzbl\t%%al, %%eax\n");
+    assert(0);  // compare what
+
+  output("\tset%s\t%%al\n", cd);
+  output("\tmovzbl\t%%al, %%eax\n");
 }
 
 static void gen_logical_and(Node n) {
   const char* flabel = new_label();
   const char* elabel = new_label();
-  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
-          regs(n->left->type->size, RAX));
-  fprintf(stdout, "\tje\t%s\n", flabel);
-  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->right->type->size),
-          regs(n->right->type->size, RDI));
-  fprintf(stdout, "\tje\t%s\n", flabel);
-  fprintf(stdout, "\tmovl\t$1, %%eax\n");
-  fprintf(stdout, "\tjmp\t%s\n", elabel);
-  fprintf(stdout, "%s:\n", flabel);
-  fprintf(stdout, "\tmovl\t$0, %%eax\n");
-  fprintf(stdout, "%s:\n", elabel);
+  output("\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
+         regs(n->left->type->size, RAX));
+  output("\tje\t%s\n", flabel);
+  output("\tcmp%c\t$0, %%%s\n", size_suffix(n->right->type->size),
+         regs(n->right->type->size, RDI));
+  output("\tje\t%s\n", flabel);
+  output("\tmovl\t$1, %%eax\n");
+  output("\tjmp\t%s\n", elabel);
+  output("%s:\n", flabel);
+  output("\tmovl\t$0, %%eax\n");
+  output("%s:\n", elabel);
 }
 
 static void gen_logical_or(Node n) {
   const char* tlabel = new_label();
   const char* elabel = new_label();
-  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
-          regs(n->left->type->size, RAX));
-  fprintf(stdout, "\tjne\t%s\n", tlabel);
-  fprintf(stdout, "\tcmp%c\t$0, %%%s\n", size_suffix(n->right->type->size),
-          regs(n->right->type->size, RDI));
-  fprintf(stdout, "\tjne\t%s\n", tlabel);
-  fprintf(stdout, "\tmovl\t$0, %%eax\n");
-  fprintf(stdout, "\tjmp\t%s\n", elabel);
-  fprintf(stdout, "%s:\n", tlabel);
-  fprintf(stdout, "\tmovl\t$1, %%eax\n");
-  fprintf(stdout, "%s:\n", elabel);
+  output("\tcmp%c\t$0, %%%s\n", size_suffix(n->left->type->size),
+         regs(n->left->type->size, RAX));
+  output("\tjne\t%s\n", tlabel);
+  output("\tcmp%c\t$0, %%%s\n", size_suffix(n->right->type->size),
+         regs(n->right->type->size, RDI));
+  output("\tjne\t%s\n", tlabel);
+  output("\tmovl\t$0, %%eax\n");
+  output("\tjmp\t%s\n", elabel);
+  output("%s:\n", tlabel);
+  output("\tmovl\t$1, %%eax\n");
+  output("%s:\n", elabel);
 }
 
 static void gen_bitwise(Node n) {
@@ -385,10 +381,10 @@ static void gen_bitwise(Node n) {
   else if (n->kind == A_B_EXCLUSIVEOR)
     inst = "xor";
   else
-    error("what bitwise operator");
+    assert(0);  // what bitwise operator;
 
-  fprintf(stdout, "\t%s%c\t%%%s, %%%s\n", inst, size_suffix(n->type->size),
-          regs(n->type->size, RDI), regs(n->type->size, RAX));
+  output("\t%s%c\t%%%s, %%%s\n", inst, size_suffix(n->type->size),
+         regs(n->type->size, RDI), regs(n->type->size, RAX));
 }
 
 static void gen_shift(Node n) {
@@ -398,9 +394,9 @@ static void gen_shift(Node n) {
   else
     inst = is_signed(n->left->type) ? "sar" : "shr";
 
-  fprintf(stdout, "\tmovq\t%%rdi, %%rcx\n");
-  fprintf(stdout, "\t%s%c\t%%cl, %%%s\n", inst,
-          size_suffix(n->left->type->size), regs(n->left->type->size, RAX));
+  output("\tmovq\t%%rdi, %%rcx\n");
+  output("\t%s%c\t%%cl, %%%s\n", inst, size_suffix(n->left->type->size),
+         regs(n->left->type->size, RAX));
 }
 
 static void gen_expr(Node n) {
@@ -426,7 +422,7 @@ static void gen_expr(Node n) {
       gen_addr(n->left);
       return;
     case A_ASSIGN:
-      fprintf(stdout, "\t// assignment\n");
+      output("\t// assignment\n");
       gen_addr(n->left);
       gen_expr(n->right);
       gen_store(n->left->type);
@@ -442,7 +438,7 @@ static void gen_expr(Node n) {
       return;
     case A_COMMA:
       gen_expr(n->left);
-      fprintf(stdout, "\tpopq\t%%rax\n");
+      output("\tpopq\t%%rax\n");
       gen_expr(n->right);
       return;
     case A_MINUS:
@@ -462,8 +458,8 @@ static void gen_expr(Node n) {
   // https://en.cppreference.com/w/cpp/language/eval_order
   gen_expr(n->left);
   gen_expr(n->right);
-  fprintf(stdout, "\tpopq\t%%rdi\n");
-  fprintf(stdout, "\tpopq\t%%rax\n");
+  output("\tpopq\t%%rdi\n");
+  output("\tpopq\t%%rax\n");
   switch (n->kind) {
     case A_ADD:
     case A_SUB:
@@ -496,9 +492,9 @@ static void gen_expr(Node n) {
       gen_shift(n);
       break;
     default:
-      error("unknown ast node");
+      assert(0);  // unknown ast node
   }
-  fprintf(stdout, "\tpushq\t%%rax\n");
+  output("\tpushq\t%%rax\n");
 }
 
 /******************************
@@ -531,21 +527,21 @@ static void gen_if(Node n) {
 
   // condition
   gen_expr(n->cond);
-  fprintf(stdout, "\tpopq\t%%rax\n");
-  fprintf(stdout, "\tcmpl\t$0, %%eax\n");
-  fprintf(stdout, "\tjz\t%s\n", lfalse);
+  output("\tpopq\t%%rax\n");
+  output("\tcmpl\t$0, %%eax\n");
+  output("\tjz\t%s\n", lfalse);
 
   // true statement
   gen_stat(n->then);
 
   // false statement
   if (n->els) {
-    fprintf(stdout, "\tjmp\t%s\n", lend);
-    fprintf(stdout, "%s:\n", lfalse);
+    output("\tjmp\t%s\n", lend);
+    output("%s:\n", lfalse);
     gen_stat(n->els);
   }
 
-  fprintf(stdout, "%s:\n", lend);
+  output("%s:\n", lend);
 }
 
 static void gen_dowhile(Node n) {
@@ -555,18 +551,18 @@ static void gen_dowhile(Node n) {
   iter_enter(&lstat, &lend);
 
   // statement
-  fprintf(stdout, "%s:\n", lstat);
+  output("%s:\n", lstat);
   gen_stat(n->body);
 
   // condition
   gen_expr(n->cond);
-  fprintf(stdout, "\tpopq\t%%rax\n");
-  fprintf(stdout, "\tcmpl\t$0, %%eax\n");
-  fprintf(stdout, "\tjnz\t%s\n", lstat);
+  output("\tpopq\t%%rax\n");
+  output("\tcmpl\t$0, %%eax\n");
+  output("\tjnz\t%s\n", lstat);
 
   iter_exit();
   if (lend) {
-    fprintf(stdout, "%s:\n", lend);
+    output("%s:\n", lend);
   }
 }
 
@@ -574,14 +570,14 @@ static void gen_break(Node n) {
   if (!(*iterjumploc->lbreak)) {
     *iterjumploc->lbreak = new_label();
   }
-  fprintf(stdout, "\tjmp\t%s\n", *iterjumploc->lbreak);
+  output("\tjmp\t%s\n", *iterjumploc->lbreak);
 }
 
 static void gen_continue(Node n) {
   if (!(*iterjumploc->lcontinue)) {
     *iterjumploc->lcontinue = new_label();
   }
-  fprintf(stdout, "\tjmp\t%s\n", *iterjumploc->lcontinue);
+  output("\tjmp\t%s\n", *iterjumploc->lcontinue);
 }
 
 static void gen_for(Node n) {
@@ -595,12 +591,12 @@ static void gen_for(Node n) {
   }
 
   // condition
-  fprintf(stdout, "%s:\n", lcond);
+  output("%s:\n", lcond);
   if (n->cond) {
     gen_expr(n->cond);
-    fprintf(stdout, "\tpopq\t%%rax\n");
-    fprintf(stdout, "\tcmpl\t$0, %%eax\n");
-    fprintf(stdout, "\tje\t%s\n", lend);
+    output("\tpopq\t%%rax\n");
+    output("\tcmpl\t$0, %%eax\n");
+    output("\tje\t%s\n", lend);
   }
 
   // stat
@@ -611,11 +607,11 @@ static void gen_for(Node n) {
   // post_expr
   if (n->post) {
     if (lcontinue)
-      fprintf(stdout, "%s:\n", lcontinue);
+      output("%s:\n", lcontinue);
     gen_stat(n->post);
   }
-  fprintf(stdout, "\tjmp\t%s\n", lcond);
-  fprintf(stdout, "%s:\n", lend);
+  output("\tjmp\t%s\n", lcond);
+  output("%s:\n", lend);
 }
 
 static void gen_return(Node n) {
@@ -623,9 +619,9 @@ static void gen_return(Node n) {
     if (current_func->type == voidtype)
       warn("return with a value, in function returning void");
     gen_expr(n->body);
-    fprintf(stdout, "\tpopq\t%%rax\n");
+    output("\tpopq\t%%rax\n");
   }
-  fprintf(stdout, "\tjmp\t.L.return.%s\n", current_func->name);
+  output("\tjmp\t.L.return.%s\n", current_func->name);
 }
 
 static void gen_stat(Node n) {
@@ -654,7 +650,7 @@ static void gen_stat(Node n) {
       return;
     case A_EXPR_STAT:
       gen_expr(n->body);
-      fprintf(stdout, "\taddq\t$8, %%rsp\n");
+      output("\taddq\t$8, %%rsp\n");
       return;
     default:
       gen_expr(n);
@@ -669,8 +665,10 @@ static void gen_stat(Node n) {
 static void handle_lvars(Node n) {
   int offset = 0;
   for (Node v = n->locals; v; v = v->next) {
-    offset += unqual(v->type)->size;
-    v->offset = offset;
+    if (v->kind == A_VAR) {
+      offset += unqual(v->type)->size;
+      v->offset = offset;
+    }
   }
   if (offset % 8) {
     offset += 8 - (offset % 8);
@@ -686,14 +684,14 @@ static void gen_func() {
     enter_func(n);
     handle_lvars(n);
 
-    fprintf(stdout, "\t.text\n");
-    fprintf(stdout, "\t.global %s\n", n->name);
-    fprintf(stdout, "%s:\n", n->name);
+    output("\t.text\n");
+    output("\t.global %s\n", n->name);
+    output("%s:\n", n->name);
 
     // Prologue
-    fprintf(stdout, "\tpushq\t%%rbp\n");
-    fprintf(stdout, "\tmovq\t%%rsp, %%rbp\n");
-    fprintf(stdout, "\tsubq\t$%d, %%rsp\n", n->stack_size);
+    output("\tpushq\t%%rbp\n");
+    output("\tmovq\t%%rsp, %%rbp\n");
+    output("\tsubq\t$%d, %%rsp\n", n->stack_size);
 
     // Load arguments to local variables
     int i = 0;
@@ -701,14 +699,14 @@ static void gen_func() {
     list_for_each(n->params, node) {
       Node v = node->body;
       if (i < 6)
-        fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
-                size_suffix(unqual(v->type)->size),
-                regs(unqual(v->type)->size, i), v->offset);
+        output("\tmov%c\t%%%s, -%d(%%rbp)\n",
+               size_suffix(unqual(v->type)->size),
+               regs(unqual(v->type)->size, i), v->offset);
       else {
-        fprintf(stdout, "\tmovq\t%d(%%rbp), %%rax\n", 8 * (i - 6) + 16);
-        fprintf(stdout, "\tmov%c\t%%%s, -%d(%%rbp)\n",
-                size_suffix(unqual(v->type)->size),
-                regs(unqual(v->type)->size, RAX), v->offset);
+        output("\tmovq\t%d(%%rbp), %%rax\n", 8 * (i - 6) + 16);
+        output("\tmov%c\t%%%s, -%d(%%rbp)\n",
+               size_suffix(unqual(v->type)->size),
+               regs(unqual(v->type)->size, RAX), v->offset);
       }
       i++;
     }
@@ -717,10 +715,10 @@ static void gen_func() {
     gen_stat(n->body);
 
     // Epilogue
-    fprintf(stdout, ".L.return.%s:\n", n->name);
-    fprintf(stdout, "\tmovq\t%%rbp, %%rsp\n");
-    fprintf(stdout, "\tpopq\t%%rbp\n");
-    fprintf(stdout, "\tret\n");
+    output(".L.return.%s:\n", n->name);
+    output("\tmovq\t%%rbp, %%rsp\n");
+    output("\tpopq\t%%rbp\n");
+    output("\tret\n");
 
     exit_func(n);
   }
@@ -732,37 +730,36 @@ static void gen_data() {
   for (Node n = globals; n; n = n->next) {
     if (n->kind == A_STRING_LITERAL) {
       if (n_rodata++ == 0)
-        fprintf(stdout, "\t.section .rodata\n");
+        output("\t.section .rodata\n");
       n->name = new_label();
-      fprintf(stdout, "%s:\n", n->name);
-      fprintf(stdout, "\t.string\t\"%s\"\n", escape(n->string_value));
+      output("%s:\n", n->name);
+      output("\t.string\t\"%s\"\n", escape(n->string_value));
     }
   }
 
   for (Node n = globals; n; n = n->next) {
     if (n->kind == A_VAR && !n->init_value) {
       if (n_bss++ == 0)
-        fprintf(stdout, "\t.bss\n");
-      fprintf(stdout, "\t.global %s\n", n->name);
-      fprintf(stdout, "%s:\n", n->name);
-      fprintf(stdout, "\t.zero %d\n", n->type->size);
+        output("\t.bss\n");
+      output("\t.global %s\n", n->name);
+      output("%s:\n", n->name);
+      output("\t.zero %d\n", n->type->size);
     }
   }
 
   for (Node n = globals; n; n = n->next) {
     if (n->kind == A_VAR && n->init_value) {
       if (n_data++ == 0)
-        fprintf(stdout, "\t.data\n");
-      fprintf(stdout, "\t.global %s\n", n->name);
-      fprintf(stdout, "%s:\n", n->name);
+        output("\t.data\n");
+      output("\t.global %s\n", n->name);
+      output("%s:\n", n->name);
       if (n->init_value->kind == A_NUM) {
         if (n->type->size == 1)
-          fprintf(stdout, "\t.byte\t%d\n", n->init_value->intvalue);
+          output("\t.byte\t%d\n", n->init_value->intvalue);
         else
-          fprintf(stdout, "\t.%dbyte\t%d\n", n->type->size,
-                  n->init_value->intvalue);
+          output("\t.%dbyte\t%d\n", n->type->size, n->init_value->intvalue);
       } else if (n->init_value->kind == A_STRING_LITERAL) {
-        fprintf(stdout, "\t.8byte\t%s\n", n->init_value->name);
+        output("\t.8byte\t%s\n", n->init_value->name);
       }
     }
   }

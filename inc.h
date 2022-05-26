@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -7,16 +8,28 @@
 /*************
  *   utils   *
  *************/
+
+#define max(x, y) (((x) > (y)) ? (x) : (y))
+
 void error(char*, ...);
 void warn(char*, ...);
 
 const char* stringn(const char* s, int n);
 const char* string(const char* s);
 
+struct options {
+  const char* input_filename;
+  const char* output_filename;
+};
+extern struct options options;
+void parse_arguments(int argc, char* argv[]);
+
+int read_source(char** dst);
+void output(const char* fmt, ...);
+
 typedef struct type* Type;
 typedef struct node* Node;
-
-#define max(x, y) (((x) > (y)) ? (x) : (y))
+typedef struct token* Token;
 
 /*************
  *   symbs   *
@@ -212,7 +225,6 @@ enum {
   TK_STRING,
 };
 
-typedef struct token* Token;
 struct token {
   int kind;
   Token next;
@@ -221,9 +233,14 @@ struct token {
   const char* name;
 };
 
-extern const char* token_str[];
+Token token();
+void set_token(Token t);
+int match(int kind);
+int match_specifier();
+Token expect(int kind);
+Token consume(int kind);
+void tokenize();
 const char* escape(const char* s);
-Token tokenize(const char* input);
 
 /*************
  *   parse   *
@@ -379,7 +396,7 @@ struct node {
 #define list_empty(head) (head->next == head)
 int list_length(Node head);
 
-void parse(Token t);
+void parse();
 
 /*********************
  *   code generate   *

@@ -26,6 +26,7 @@ A toy c compiler for learning purpose, support some C99 features and generate co
 ## Concept
 
 * [Computer Systems A Programmers Perspective (3rd)](https://github.com/Sorosliu1029/CSAPP-Labs/blob/master/Computer%20Systems%20A%20Programmers%20Perspective%20(3rd).pdf)
+* [Compiler](https://en.wikipedia.org/wiki/Compiler)
 * [Recursive descent parser](https://en.wikipedia.org/wiki/Recursive_descent_parser)
 * [LL parser](https://en.wikipedia.org/wiki/LL_parser)
 * Scope [wiki](https://en.wikipedia.org/wiki/Scope_(computer_science)) [C](http://port70.net/~nsz/c/c99/n1256.html#6.2.1)
@@ -95,4 +96,4 @@ A toy c compiler for learning purpose, support some C99 features and generate co
     - [x] for test, compile the source code with gcc, use the output of gcc as target output
     - [ ] for debug: add corrsponding source line in output file 
     - [ ] add source location in error message
-    - [ ] read srouce code from file
+    - [x] read srouce code from file, write output to file

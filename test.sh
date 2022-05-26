@@ -29,14 +29,14 @@ function test {
     fi
 
     # compile input
-    ./mycc "${prog}" >temp.S 2>/dev/null
+    ./mycc $file -o temp.s 2>/dev/null
     if [[ $? -ne 0 ]]; then
         failed "$file" "can't compile"
         return
     fi
 
     # build executable
-    gcc temp.S -o temp.out 2>/dev/null
+    gcc temp.s -o temp.out 2>/dev/null
     if [[ $? -ne 0 ]]; then
         failed "$file" "can't assembly"
         return

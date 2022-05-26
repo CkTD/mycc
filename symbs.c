@@ -1,9 +1,12 @@
 #include "inc.h"
 
-// file scope
-// global variables/function/string-literal/tags
-// are accumulated to this list during parsing
+// global variables/function/string-literal/tags/enum-const having file scope
+// are linked to this list during parsing.
 Node globals;
+
+// function currently being parsed/generated. local variables/tags/enum-const
+// inside the function are linked in current_func->locals during parsing
+Node current_func;
 
 // nested block scope
 typedef struct blockscope* BlockScope;
@@ -11,27 +14,19 @@ struct blockscope {
   Node list;
   BlockScope outer;
 };
-// variables/tags for current block
+// current block scope. local variables/tags inside current block scope are
+// accumulated to this.
 static BlockScope blockscope;
 
-// current function being parsed/generated
-Node current_func;
-// local variables for current function
-static Node locals;
-
 void enter_func(Node f) {
-  if (current_func)
-    error("nested function");
+  assert(!current_func);
 
-  locals = f->locals;
   current_func = f;
 }
 
 void exit_func(Node f) {
-  if (current_func != f)
-    error("not in func");
+  assert(f && current_func == f);
 
-  f->locals = locals;
   current_func = NULL;
 }
 
@@ -92,8 +87,18 @@ Node find_symbol(const char* name, int kind, int scope) {
     return find_file_scope(name, kind);
   }
 
-  error("unknwon scope");
+  assert(0);
   return n;
+}
+
+// append a node to the tail of list pointed by head(globals or
+// current locals). keep items having same order as appeared in
+// source code so that generated code will also has same order.
+// TODO: use doubly linked list to achieve O(1)?
+static void append_tail(Node* head, Node n) {
+  while (*head)
+    head = &((*head)->next);
+  *head = n;
 }
 
 // for scope=FILE install to file scope
@@ -104,20 +109,20 @@ void install_symbol(Node n, int scope) {
     error("redefine symbol \"%s\"", n->name);
 
   if (scope == SCOPE_INNER && current_func) {
-    if (n->kind != A_TAG) {
-      n->next = locals;
-      locals = n;
-    }
+    // linked to the current scope, order doesn't matter
     n->scope_next = blockscope->list;
     blockscope->list = n;
+
+    if (n->kind != A_TAG)
+      append_tail(&current_func->locals, n);
+
     return;
   }
 
   if ((scope == SCOPE_FILE) || (scope == SCOPE_INNER && !current_func)) {
-    n->next = globals;
-    globals = n;
+    append_tail(&globals, n);
     return;
   }
 
-  error("unknown scope");
+  assert(0);
 }
