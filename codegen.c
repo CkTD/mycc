@@ -66,8 +66,6 @@ static const char* new_label() {
   return string(buf);
 }
 
-static Node current_func;
-
 static void gen_expr(Node n);
 static void gen_stat(Node n);
 
@@ -664,9 +662,9 @@ static void gen_stat(Node n) {
   }
 }
 
-/********************************************************
- *  generate global objs ( function, global variable )  *
- ********************************************************/
+/********************************
+ *  generate data and function  *
+ ********************************/
 
 static void handle_lvars(Node n) {
   int offset = 0;
@@ -680,12 +678,12 @@ static void handle_lvars(Node n) {
   n->stack_size = (offset + 15) & -16;
 }
 
-static void gen_func(Node globals) {
+static void gen_func() {
   for (Node n = globals; n; n = n->next) {
     if (n->kind != A_FUNCTION || !n->body)
       continue;
 
-    current_func = n;
+    enter_func(n);
     handle_lvars(n);
 
     fprintf(stdout, "\t.text\n");
@@ -723,10 +721,12 @@ static void gen_func(Node globals) {
     fprintf(stdout, "\tmovq\t%%rbp, %%rsp\n");
     fprintf(stdout, "\tpopq\t%%rbp\n");
     fprintf(stdout, "\tret\n");
+
+    exit_func(n);
   }
 }
 
-static void gen_data(Node globals) {
+static void gen_data() {
   int n_rodata = 0, n_data = 0, n_bss = 0;
 
   for (Node n = globals; n; n = n->next) {
@@ -768,7 +768,7 @@ static void gen_data(Node globals) {
   }
 }
 
-void codegen(Node globals) {
-  gen_data(globals);
-  gen_func(globals);
+void codegen() {
+  gen_data();
+  gen_func();
 }

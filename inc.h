@@ -1,3 +1,9 @@
+#include <ctype.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /*************
  *   utils   *
  *************/
@@ -11,6 +17,25 @@ typedef struct type* Type;
 typedef struct node* Node;
 
 #define max(x, y) (((x) > (y)) ? (x) : (y))
+
+/*************
+ *   symbs   *
+ *************/
+
+enum scope {
+  SCOPE_FILE,
+  SCOPE_INNER,
+  SCOPE_ALL,
+};
+
+extern Node globals;
+extern Node current_func;
+void enter_scope();
+void exit_scope();
+void enter_func();
+void exit_func();
+Node find_symbol(const char* name, int kind, int scope);
+void install_symbol(Node n, int scope);
 
 /*************
  *   type    *
@@ -354,9 +379,9 @@ struct node {
 #define list_empty(head) (head->next == head)
 int list_length(Node head);
 
-Node parse(Token t);
+void parse(Token t);
 
 /*********************
  *   code generate   *
  *********************/
-void codegen(Node r);
+void codegen();

@@ -1,6 +1,3 @@
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
 #include "inc.h"
 
 const char* token_str[] = {

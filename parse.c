@@ -1,6 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include "inc.h"
 
 /***********************
@@ -36,6 +33,7 @@ static Token consume(int kind) {
 static int match_specifier() {
   return t->kind >= TK_VOID && t->kind <= TK_ENUM;
 }
+
 /*******************
  * create AST Node *
  *******************/
@@ -104,11 +102,6 @@ static Node unqual_array_to_ptr(Node n) {
   return n;
 }
 
-// kind:
-//     A_ADDRESS_OF, A_DEREFERENCE
-//     A_MINUS, A_PLUS, A_B_NOT, A_L_NOT
-//     A_POSTFIX_INC, A_POSTFIX_DEC
-//     A_SIZE_OF
 static Node mkunary(int kind, Node left) {
   Node n = mknode(kind);
   n->left = (kind == A_ADDRESS_OF || kind == A_POSTFIX_INC ||
@@ -181,15 +174,6 @@ static Node mkunary(int kind, Node left) {
   return NULL;
 }
 
-// kind:
-//     A_COMMA
-//     A_ASSIGN
-//     A_L_OR, A_L_AND,
-//     A_B_INCLUSIVE, A_B_EXCLUSIVE, A_B_AND
-//     A_EQ, A_NE, A_LT, A_GT, A_LE, A_GE
-//     A_LEFT_SHIFT, A_RIGHT_SHIFT
-//     A_ADD, A_SUB
-//     A_MUL, A_DIV
 static Node mkbinary(int kind, Node left, Node right) {
   Node n = mknode(kind);
   n->left =
@@ -374,6 +358,88 @@ static Node mkternary(Node cond, Node left, Node right) {
   return NULL;
 }
 
+static Node mkvar(const char* name, Type ty) {
+  Node n = mknode(A_VAR);
+  n->name = name;
+  n->type = ty;
+  n->is_global = current_func ? 0 : 1;
+  install_symbol(n, SCOPE_INNER);
+  return n;
+}
+
+static Node mkfunc(const char* name, Type ty) {
+  Node n = find_symbol(name, A_FUNCTION, SCOPE_FILE);
+  if (n) {
+    if (!is_compatible_type(n->type, ty))
+      error("conflicting types for function %s", name);
+    n->type =
+        n->body ? composite_type(n->type, ty) : composite_type(ty, n->type);
+    return n;
+  }
+
+  n = mknode(A_FUNCTION);
+  n->name = name;
+  n->type = ty;
+  install_symbol(n, SCOPE_FILE);
+
+  return n;
+}
+
+static Node mkstrlit(const char* str) {
+  Node n = mknode(A_STRING_LITERAL);
+  n->string_value = str;
+  n->type = array_type(chartype, strlen(str) + 1);
+  install_symbol(n, SCOPE_FILE);
+  return n;
+}
+
+static Node mktag(const char* name, Type ty) {
+  char buff[4096];
+  sprintf(buff, ".tag.%s", name);
+  const char* search_name = string(buff);
+
+  Node n = find_symbol(search_name, A_TAG, SCOPE_INNER);
+  if (n) {
+    if (is_enum(ty))
+      error("redefine tag \"%s\"", name);
+    else if (!ty->member) {
+    } else if (!n->type->member) {
+      update_struct_or_union_type(n->type, ty->member);
+    } else {
+      error("redefine tag \"%s\"", name);
+    }
+  } else {
+    n = mknode(A_TAG);
+    n->name = search_name;
+    n->type = ty;
+    install_symbol(n, SCOPE_INNER);
+  }
+  return n;
+}
+
+// tag for struct/union/enum share namesapce
+// http://port70.net/~nsz/c/c99/n1256.html#6.2.3
+static Node find_tag(const char* name, int type_kind) {
+  char buff[4096];
+  sprintf(buff, ".tag.%s", name);
+  const char* search_name = string(buff);
+
+  Node n = find_symbol(search_name, A_TAG, SCOPE_ALL);
+  if (n && unqual(n->type)->kind != type_kind)
+    error("conflict type %s", name);
+
+  return n;
+}
+
+static Node mkenumconst(const char* name, int value) {
+  Node n = mknode(A_ENUM_CONST);
+  n->name = name;
+  n->type = inttype;
+  n->intvalue = value;
+  install_symbol(n, SCOPE_INNER);
+  return n;
+}
+
 /**********************
  * double linked list *
  **********************/
@@ -399,193 +465,6 @@ int list_length(Node head) {
   for (Node n = head->next; n != head; n = n->next)
     l++;
   return l;
-}
-
-/***********************
- *        scope        *
- ***********************/
-// current function being parsed
-static Node current_func;
-// local variables
-// are accumulated to this list during parsing current function
-static Node locals;
-// global variables/function/string-literal/tags
-// are accumulated to this list during parsing
-static Node globals;
-
-typedef struct scope* Scope;
-struct scope {
-  Node list;
-  Scope outer;
-};
-
-// local variables/tags
-// are accumulated to this list during parsing current bloc
-static Scope scope;
-
-static void enter_scope() {
-  Scope new_scope = calloc(1, sizeof(struct scope));
-  new_scope->outer = scope;
-  scope = new_scope;
-}
-
-static void exit_scope() {
-  scope = scope->outer;
-}
-
-// search symbol of 'kind' having 'name' in scope
-//   if name not found in scope, return NULL
-//   if a symbol matching the name but with different kind, error
-//   kind = A_ANY(0) means any kind is ok
-static Node find_scope(const char* name, Scope s, int kind) {
-  for (Node n = s->list; n; n = n->scope_next) {
-    if (name == n->name) {
-      if (kind && n->kind != kind)
-        error("conflict type for %s", name);
-      return n;
-    }
-  }
-  return NULL;
-}
-
-static Node find_global(const char* name, int kind) {
-  for (Node n = globals; n; n = n->next) {
-    if (name == n->name) {
-      if (kind && n->kind != kind)
-        error("conflict type for %s", name);
-      return n;
-    }
-  }
-  return NULL;
-}
-
-static Node find_symbol(const char* name, int kind) {
-  Node n;
-  for (Scope s = scope; s; s = s->outer) {
-    if ((n = find_scope(name, s, kind))) {
-      return n;
-    }
-  }
-
-  return find_global(name, kind);
-}
-
-static Node mkvar(const char* name, Type ty) {
-  Node n = mknode(A_VAR);
-  n->name = name;
-  n->type = ty;
-
-  if (current_func) {  // local var
-    if (find_scope(name, scope, A_VAR))
-      error("redefine local variable \"%s\"", name);
-    n->is_global = 0;
-    n->next = locals;
-    locals = n;
-    n->scope_next = scope->list;
-    scope->list = n;
-  } else {  // gloabl var
-    if (find_global(name, A_VAR))
-      error("redefine global variable \"%s\"", name);
-    n->is_global = 1;
-    n->next = globals;
-    globals = n;
-  }
-
-  return n;
-}
-
-static Node mkfunc(const char* name, Type ty) {
-  Node n = find_global(name, A_FUNCTION);
-  if (!n) {
-    n = mknode(A_FUNCTION);
-    n->name = name;
-    n->type = ty;
-    n->next = globals;
-    globals = n;
-  } else {
-    if (!is_compatible_type(n->type, ty))
-      error("conflicting types for function %s", name);
-    n->type =
-        n->body ? composite_type(n->type, ty) : composite_type(ty, n->type);
-  }
-  return n;
-}
-
-static Node mkstrlit(const char* str) {
-  Node n = mknode(A_STRING_LITERAL);
-  n->string_value = str;
-  n->type = array_type(chartype, strlen(str) + 1);
-  n->next = globals;
-  globals = n;
-  return n;
-}
-
-// tag for struct/union/enum share namesapce
-// http://port70.net/~nsz/c/c99/n1256.html#6.2.3
-static Node find_tag(const char* name, int type_kind) {
-  char buff[4096];
-  sprintf(buff, ".tag.%s", name);
-  const char* search_name = string(buff);
-
-  Node n = find_symbol(search_name, A_TAG);
-  if (n && unqual(n->type)->kind != type_kind)
-    error("conflict type %s", name);
-
-  return n;
-}
-
-static Node mktag(const char* name, Type ty) {
-  char buff[4096];
-  sprintf(buff, ".tag.%s", name);
-  const char* search_name = string(buff);
-
-  Node n = current_func ? find_scope(search_name, scope, A_TAG)
-                        : find_global(search_name, A_TAG);
-
-  if (n) {
-    if (is_enum(ty))
-      error("redefine tag \"%s\"", name);
-    else if (!ty->member) {
-    } else if (!n->type->member) {
-      update_struct_or_union_type(n->type, ty->member);
-    } else {
-      error("redefine tag \"%s\"", name);
-    }
-  } else {
-    n = mknode(A_TAG);
-    n->name = search_name;
-    n->type = ty;
-    if (current_func) {
-      n->scope_next = scope->list;
-      scope->list = n;
-    } else {
-      n->next = globals;
-      globals = n;
-    }
-  }
-
-  return n;
-}
-
-static Node mkenumconst(const char* name, int value) {
-  Node n = current_func ? find_scope(name, scope, A_ENUM_CONST)
-                        : find_global(name, A_ENUM_CONST);
-  if (n)
-    error("redefine enumerator %s", name);
-
-  n = mknode(A_ENUM_CONST);
-  n->name = name;
-  n->type = inttype;
-  n->intvalue = value;
-
-  if (current_func) {
-    n->scope_next = scope->list;
-    scope->list = n;
-  } else {
-    n->next = globals;
-    globals = n;
-  }
-  return n;
 }
 
 /*****************************
@@ -656,7 +535,7 @@ static Node mkenumconst(const char* name, int value) {
 // arg_list:           '(' expression { ',' expression } ')'
 // array_subscripting: '[' expression ']'
 
-static Node trans_unit();
+static void trans_unit();
 static Node declaration();
 static Type declaration_specifiers();
 static Type struct_union_specifier();
@@ -699,11 +578,9 @@ static Node array_subscripting(Node n);
 static Node member_selection(Node n);
 static Node ordinary(Node n);
 
-static Node trans_unit() {
+static void trans_unit() {
   while (t)
     declaration();
-
-  return globals;
 }
 
 // for struct type declaration without declarator
@@ -1168,9 +1045,8 @@ static Node function(Node f) {
   if (f->body)
     error("redefinition of function %s", f->name);
 
+  enter_func(f);
   enter_scope();
-  current_func = f;
-  locals = NULL;
   // paramenter
   f->params = mklist(NULL);
   if (f->type->proto->type != voidtype)
@@ -1181,10 +1057,9 @@ static Node function(Node f) {
     }
 
   f->body = comp_stat(1);
-  f->locals = locals;
-  current_func = NULL;
-  exit_scope();
 
+  exit_func(f);
+  exit_scope();
   return NULL;
 }
 
@@ -1581,7 +1456,7 @@ static Node func_call(Node n) {
     error("not implemented");
   const char* name = n->name;
 
-  Node f = find_global(name, A_FUNCTION);
+  Node f = find_symbol(name, A_FUNCTION, SCOPE_FILE);
   if (!f) {  //  implicit function declaration
     warn("implicit declaration of function %s", name);
     f = mkfunc(name, function_type(inttype, NULL));
@@ -1634,7 +1509,7 @@ static Node func_call(Node n) {
 
 static Node array_subscripting(Node n) {
   if (n->kind == A_IDENT) {
-    if (!(n = find_symbol(n->name, A_VAR)))
+    if (!(n = find_symbol(n->name, A_VAR, SCOPE_ALL)))
       error("undefined array");
   }
 
@@ -1653,7 +1528,7 @@ static Node array_subscripting(Node n) {
 
 static Node member_selection(Node n) {
   if (n->kind == A_IDENT) {
-    if (!(n = find_symbol(n->name, A_VAR)))
+    if (!(n = find_symbol(n->name, A_VAR, SCOPE_ALL)))
       error("undefined variable");
   }
 
@@ -1680,7 +1555,7 @@ static Node member_selection(Node n) {
 static Node ordinary(Node n) {
   // http://port70.net/~nsz/c/c99/n1256.html#6.2.3
 
-  n = find_symbol(n->name, A_ANY);
+  n = find_symbol(n->name, A_ANY, SCOPE_ALL);
   if (!n)
     error("undefined variable %s", n->name);
   if (n->kind != A_VAR && n->kind != A_ENUM_CONST)
@@ -1688,7 +1563,7 @@ static Node ordinary(Node n) {
   return n;
 }
 
-Node parse(Token root) {
+void parse(Token root) {
   t = root;
-  return trans_unit();
+  trans_unit();
 }

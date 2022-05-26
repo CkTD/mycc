@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include "inc.h"
 
 Type voidtype = &(struct type){TY_VOID, 0, NULL, "void"};

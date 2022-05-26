@@ -1,7 +1,4 @@
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "inc.h"
 
 void error(char* msg, ...) {
   va_list ap;
@@ -39,7 +36,7 @@ static struct string {
   struct string* next;
 } * string_table[STSIZE];
 
-char* stringn(char* s, int n) {
+const char* stringn(const char* s, int n) {
   unsigned h = hash((unsigned char*)s, n) % STSIZE;
   for (struct string* i = string_table[h]; i; i = i->next) {
     if (strlen(i->s) == n && strncmp(i->s, s, n) == 0)
@@ -55,6 +52,6 @@ char* stringn(char* s, int n) {
   return new->s;
 }
 
-const char* string(char* s) {
+const char* string(const char* s) {
   return stringn(s, strlen(s));
 }

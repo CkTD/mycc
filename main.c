@@ -3,9 +3,9 @@
 int main(int argc, char* argv[]) {
   Token t = tokenize(argv[1]);
 
-  Node root = parse(t);
+  parse(t);
 
-  codegen(root);
+  codegen();
 
   return 0;
 }
