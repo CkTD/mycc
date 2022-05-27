@@ -570,7 +570,7 @@ static void trans_unit() {
 //    make tag/type(return NULL)
 // for typedef
 //    make type(return NULL)
-// for local declaration(called by comp_stat)
+// for local declaration(called by comp_stat/for_stat)
 //    make local variable(return node list for init assign)
 // for global declaration(called by trans_unit)
 //    make global variable(set it init_value member, return NULL)
@@ -1178,7 +1178,9 @@ static Node for_stat() {
   expect(TK_OPENING_PARENTHESES);
   enter_scope();
   if (!consume(TK_SIMI))
-    n->init = expr_stat();
+    n->init =
+        match_specifier_typedef() ? mkaux(A_BLOCK, declaration()) : expr_stat();
+
   if (!consume(TK_SIMI)) {
     n->cond = expression();
     expect(TK_SIMI);
