@@ -61,6 +61,7 @@ static const char* token_str[] = {
     [TK_STRUCT] = "struct",
     [TK_UNION] = "union",
     [TK_ENUM] = "enum",
+    [TK_TYPEDEF] = "typedef",
     [TK_SIZEOF] = "sizeof",
     [TK_IF] = "if",
     [TK_ELSE] = "else",
@@ -92,7 +93,7 @@ int match(int kind) {
 }
 
 int match_specifier() {
-  return ct->kind >= TK_VOID && ct->kind <= TK_ENUM;
+  return ct->kind >= TK_VOID && ct->kind <= TK_TYPEDEF;
 }
 
 Token expect(int kind) {

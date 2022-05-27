@@ -403,6 +403,26 @@ static Node mkenumconst(const char* name, int value) {
   return n;
 }
 
+static Node mktypedef(const char* name, Type ty) {
+  Node n = mknode(A_TYPEDEF);
+  n->name = name;
+  n->type = ty;
+  install_symbol(n, SCOPE_INNER);
+  return n;
+}
+
+static int match_specifier_typedef() {
+  if (match_specifier())
+    return 1;
+
+  if (!match(TK_IDENT))
+    return 0;
+
+  Node n = find_symbol(token()->name, A_ANY, SCOPE_ALL);
+
+  return n && n->kind == A_TYPEDEF;
+}
+
 /**********************
  * double linked list *
  **********************/
@@ -500,11 +520,11 @@ int list_length(Node head) {
 
 static void trans_unit();
 static Node declaration();
-static Type declaration_specifiers();
+static Type declaration_specifiers(int* is_typedef);
 static Type struct_union_specifier();
 static Member struct_declaration_list();
 static Type enum_specifier();
-static Node init_declarator(Type ty);  // scope????
+static Node init_declarator(Type ty, int is_typedef);
 static Type declarator(Type ty, const char** name);
 static Type pointer(Type ty);
 static Type direct_declarator(Type ty, const char** name);
@@ -547,16 +567,19 @@ static void trans_unit() {
 }
 
 // for struct type declaration without declarator
-//    make tag/type(return nothing)
+//    make tag/type(return NULL)
+// for typedef
+//    make type(return NULL)
 // for local declaration(called by comp_stat)
 //    make local variable(return node list for init assign)
 // for global declaration(called by trans_unit)
 //    make global variable(set it init_value member, return NULL)
 //    make function node(return the function node)
 // for function definition(called by trans_unit)
-//    make function node && fill body(return node for the function)
+//    make function node && fill body(return NULL)
 static Node declaration() {
-  Type ty = declaration_specifiers();
+  int is_typedef;
+  Type ty = declaration_specifiers(&is_typedef);
 
   if (consume(TK_SIMI)) {
     if (!is_struct_or_union(ty) && !is_enum(ty))
@@ -564,10 +587,12 @@ static Node declaration() {
     return NULL;
   }
 
-  Node n = init_declarator(ty);
+  Node n = init_declarator(ty, is_typedef);
   if (n && n->kind == A_FUNCTION) {
-    if (match(TK_OPENING_BRACES))
-      return function(n);
+    if (match(TK_OPENING_BRACES)) {
+      function(n);
+      return NULL;
+    }
     n = NULL;
   }
 
@@ -578,7 +603,7 @@ static Node declaration() {
     last = last->next;
   while (!consume(TK_SIMI)) {
     expect(TK_COMMA);
-    n = init_declarator(ty);
+    n = init_declarator(ty, is_typedef);
     last->next = (n && n->kind == A_FUNCTION) ? NULL : n;
     while (last->next)
       last = last->next;
@@ -603,11 +628,13 @@ enum {
   SPEC_RESTRICT = 1 << 10
 };
 
-static Type declaration_specifiers() {
-  Type ty;
+static Type declaration_specifiers(int* is_typedef) {
   Type struct_or_union_type = NULL;
   Type enum_type = NULL;
+  Type typedef_type = NULL;
   int specifiers = 0;
+  if (is_typedef)
+    *is_typedef = 0;
   for (;;) {
     if (consume(TK_VOID)) {
       if (get_specifier(specifiers, SPEC_VOID))
@@ -656,78 +683,90 @@ static Type declaration_specifiers() {
       if (enum_type)
         error("two or more data types in declaration specifiers");
       enum_type = enum_specifier();
+    } else if (consume(TK_TYPEDEF)) {
+      if (!is_typedef)
+        error("unexpected typedef");
+      if (*is_typedef)
+        error("duplicate typedef");
+      *is_typedef = 1;
+    } else if (match(TK_IDENT)) {
+      Node n = find_symbol(token()->name, A_ANY, SCOPE_ALL);
+      if (typedef_type || !n || n->kind != A_TYPEDEF)
+        break;
+      expect(TK_IDENT);
+      typedef_type = n->type;
     } else
       break;
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.7.2
+  Type ty;
   int type_spec = specifiers & ((1 << 8) - 1);
-  if (struct_or_union_type) {
-    if (type_spec || enum_type)
-      error("two or more data types in declaration specifiers");
-    ty = struct_or_union_type;
-  } else if (enum_type) {
-    if (type_spec)
-      error("two or more data types in declaration specifiers");
-    ty = enum_type;
-  } else {
-    switch (type_spec) {
-      case 0:
-        error("no data type in declaration specifiers");
-        break;
-      case SPEC_VOID:
-        ty = voidtype;
-        break;
-      case SPEC_CHAR:
-      case SPEC_CHAR | SPEC_SIGNED:
-        ty = chartype;
-        break;
-      case SPEC_CHAR | SPEC_UNSIGNED:
-        ty = uchartype;
-        break;
-      case SPEC_SHORT:
-      case SPEC_SIGNED | SPEC_SHORT:
-      case SPEC_SHORT | SPEC_INT:
-      case SPEC_SIGNED | SPEC_SHORT | SPEC_INT:
-        ty = shorttype;
-        break;
-      case SPEC_UNSIGNED | SPEC_SHORT:
-      case SPEC_UNSIGNED | SPEC_SHORT | SPEC_INT:
-        ty = ushorttype;
-        break;
-      case SPEC_INT:
-      case SPEC_SIGNED:
-      case SPEC_INT | SPEC_SIGNED:
-        ty = inttype;
-        break;
-      case SPEC_UNSIGNED:
-      case SPEC_UNSIGNED | SPEC_INT:
-        ty = uinttype;
-        break;
-      case SPEC_LONG1:
-      case SPEC_SIGNED | SPEC_LONG1:
-      case SPEC_LONG1 | SPEC_INT:
-      case SPEC_SIGNED | SPEC_LONG1 | SPEC_INT:
-        ty = longtype;
-        break;
-      case SPEC_UNSIGNED | SPEC_LONG1:
-      case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_INT:
-        ty = ulongtype;
-        break;
-      case SPEC_LONG1 | SPEC_LONG2:
-      case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2:
-      case SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
-      case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
-        ty = longtype;
-        break;
-      case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2:
-      case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
-        ty = ulongtype;
-        break;
-      default:
-        error("two or more data types in declaration specifiers");
-    }
+  switch (type_spec) {
+    case SPEC_VOID:
+      ty = voidtype;
+      break;
+    case SPEC_CHAR:
+    case SPEC_CHAR | SPEC_SIGNED:
+      ty = chartype;
+      break;
+    case SPEC_CHAR | SPEC_UNSIGNED:
+      ty = uchartype;
+      break;
+    case SPEC_SHORT:
+    case SPEC_SIGNED | SPEC_SHORT:
+    case SPEC_SHORT | SPEC_INT:
+    case SPEC_SIGNED | SPEC_SHORT | SPEC_INT:
+      ty = shorttype;
+      break;
+    case SPEC_UNSIGNED | SPEC_SHORT:
+    case SPEC_UNSIGNED | SPEC_SHORT | SPEC_INT:
+      ty = ushorttype;
+      break;
+    case SPEC_INT:
+    case SPEC_SIGNED:
+    case SPEC_INT | SPEC_SIGNED:
+      ty = inttype;
+      break;
+    case SPEC_UNSIGNED:
+    case SPEC_UNSIGNED | SPEC_INT:
+      ty = uinttype;
+      break;
+    case SPEC_LONG1:
+    case SPEC_SIGNED | SPEC_LONG1:
+    case SPEC_LONG1 | SPEC_INT:
+    case SPEC_SIGNED | SPEC_LONG1 | SPEC_INT:
+      ty = longtype;
+      break;
+    case SPEC_UNSIGNED | SPEC_LONG1:
+    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_INT:
+      ty = ulongtype;
+      break;
+    case SPEC_LONG1 | SPEC_LONG2:
+    case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2:
+    case SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+    case SPEC_SIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+      ty = longtype;
+      break;
+    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2:
+    case SPEC_UNSIGNED | SPEC_LONG1 | SPEC_LONG2 | SPEC_INT:
+      ty = ulongtype;
+      break;
+    default:
+      ty = NULL;
   }
+
+  if (ty && struct_or_union_type)
+    error("two or more data types in declaration specifiers");
+  ty = ty ? ty : struct_or_union_type;
+  if (ty && enum_type)
+    error("two or more data types in declaration specifiers");
+  ty = ty ? ty : enum_type;
+  if (ty && typedef_type)
+    error("two or more data types in declaration specifiers");
+  ty = ty ? ty : typedef_type;
+  if (!ty)
+    error("no data type in declaration specifiers");
 
   // cache nothing in register, so all variable is VOLATILE?
   if (get_specifier(specifiers, SPEC_CONST))
@@ -759,7 +798,7 @@ static Member struct_declaration_list() {
   struct member head = {0};
   if (consume(TK_OPENING_BRACES)) {
     while (!consume(TK_CLOSING_BRACES)) {
-      Type ty = declaration_specifiers();
+      Type ty = declaration_specifiers(NULL);
       const char* mem_name = NULL;
       Type mem_ty = declarator(ty, &mem_name);
       link_member(&head, mkmember(mem_ty, mem_name));
@@ -827,11 +866,16 @@ static Type enum_specifier() {
 //    function:        function node in global
 //    local variable:  nodes for init assign
 //    global variable: NULL
-static Node init_declarator(Type ty) {
+static Node init_declarator(Type ty, int is_typedef) {
   const char* name = NULL;
   ty = declarator(ty, &name);
   if (!name)
     error("identifier name required in declarator");
+
+  if (is_typedef) {
+    mktypedef(name, ty);
+    return NULL;
+  }
 
   if (is_funcion(ty))
     return mkfunc(name, ty);
@@ -979,7 +1023,7 @@ static Type function_declarator(Type ty) {
     }
 
     const char* name = NULL;
-    Type type = declarator(declaration_specifiers(), &name);
+    Type type = declarator(declaration_specifiers(NULL), &name);
     if (is_array(type))
       type = array_to_ptr(type);
     link_proto(&head, mkproto(type, name));
@@ -995,7 +1039,7 @@ static Type function_declarator(Type ty) {
 }
 
 static Type type_name() {
-  Type ty = declaration_specifiers();
+  Type ty = declaration_specifiers(NULL);
   const char* name = NULL;
   ty = declarator(ty, &name);
   if (name)
@@ -1080,7 +1124,7 @@ static Node comp_stat(int reuse_scope) {
   if (!reuse_scope)
     enter_scope();
   while (!match(TK_CLOSING_BRACES)) {
-    if (match_specifier())
+    if (match_specifier_typedef())
       last->next = declaration();
     else
       last->next = statement(0);
@@ -1349,7 +1393,7 @@ static Node unary_expr() {
   }
   if (consume(TK_SIZEOF)) {
     Token back = token();
-    if (consume(TK_OPENING_PARENTHESES) && match_specifier()) {
+    if (consume(TK_OPENING_PARENTHESES) && match_specifier_typedef()) {
       Node u = mknode(A_NOOP);
       u->type = type_name();
       expect(TK_CLOSING_PARENTHESES);

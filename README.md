@@ -85,7 +85,7 @@ A toy c compiler for learning purpose, support some C99 features and generate co
     - [x] struct/union related operator
     - [ ] cast operator
 - [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
-    - [ ] [typedef](http://port70.net/~nsz/c/c99/n1256.html#6.7.7)
+    - [x] [typedef](http://port70.net/~nsz/c/c99/n1256.html#6.7.7)
     - [ ] [initialization](http://port70.net/~nsz/c/c99/n1256.html#6.7.8)
     - [ ] declaration of function without name
     - [ ] [struct/union with bit-field member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p9)

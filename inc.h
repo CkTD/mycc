@@ -210,6 +210,7 @@ enum {
   TK_STRUCT,
   TK_UNION,
   TK_ENUM,
+  TK_TYPEDEF,
   TK_SIZEOF,
   TK_IF,
   TK_ELSE,
@@ -323,6 +324,7 @@ enum {
   A_FUNCTION,
   A_MEMBER_SELECTION,
   A_ENUM_CONST,
+  A_TYPEDEF,
 };
 
 struct node {
