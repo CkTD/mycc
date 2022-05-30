@@ -37,6 +37,77 @@ static Node mkicons(int intvalue) {
   return n;
 }
 
+static Node mkiconsstr(const char* str) {
+  Node n = mknode(A_NUM);
+  char* suffix;
+  n->intvalue = strtoull(str, &suffix, 0);
+  if (errno == ERANGE)
+    error("integer constant %s to large", str);
+
+  int is_oct_or_hex = (*str == '0') && ((str[1] >= '0' && str[1] <= '7') ||
+                                        (str[1] == 'x' || str[1] == 'X'));
+
+  int is_none = strlen(suffix) == 0;
+  int is_u = !strcmp(suffix, "u") || !strcmp(suffix, "U");
+  int is_l = !strcmp(suffix, "l") || !strcmp(suffix, "L");
+  int is_ll = !strcmp(suffix, "ll") || !strcmp(suffix, "LL");
+  int is_ul = !strcmp(suffix, "ul") || !strcmp(suffix, "UL") ||
+              !strcmp(suffix, "Ul") || !strcmp(suffix, "uL") ||
+              !strcmp(suffix, "lu") || !strcmp(suffix, "LU") ||
+              !strcmp(suffix, "Lu") || !strcmp(suffix, "lU");
+  is_ul |= !strcmp(suffix, "ull") || !strcmp(suffix, "ULL") ||
+           !strcmp(suffix, "Ull") || !strcmp(suffix, "uLL") ||
+           !strcmp(suffix, "llu") || !strcmp(suffix, "LLU") ||
+           !strcmp(suffix, "LLu") || !strcmp(suffix, "llU");
+
+  if (is_none) {
+    if (n->intvalue <= INT_MAX) {
+      n->type = inttype;
+      return n;
+    }
+    if (is_oct_or_hex && n->intvalue <= UINT_MAX) {
+      n->type = uinttype;
+      return n;
+    }
+    if (n->intvalue <= LONG_MAX) {
+      n->type = longtype;
+      return n;
+    }
+    if (is_oct_or_hex && n->intvalue <= ULONG_MAX) {
+      n->type = ulongtype;
+      return n;
+    }
+    error("integer constant too large");
+  } else if (is_ul) {
+    if (n->intvalue <= ULONG_MAX) {
+      n->type = ulongtype;
+      return n;
+    }
+    assert(0);
+  } else if (is_u) {
+    if (n->intvalue <= UINT_MAX) {
+      n->type = uinttype;
+      return n;
+    }
+    if (n->intvalue <= ULONG_MAX) {
+      n->type = ulongtype;
+      return n;
+    }
+  } else if (is_l || is_ll) {
+    if (n->intvalue <= LONG_MAX) {
+      n->type = longtype;
+      return n;
+    }
+    if (is_oct_or_hex && n->intvalue <= ULONG_MAX) {
+      n->type = ulongtype;
+      return n;
+    }
+    error("integer constant too large");
+  }
+  error("invalid integer suffix %s", suffix);
+  assert(0);
+}
+
 static Node mkaux(int kind, Node body) {
   Node n = mknode(kind);
   n->body = body;
@@ -855,7 +926,7 @@ static void enumerator_list() {
   while (!consume(TK_CLOSING_BRACES)) {
     const char* name = expect(TK_IDENT)->name;
     if (consume(TK_EQUAL))
-      value = consume(TK_NUM)->value;
+      value = mkiconsstr(consume(TK_NUM)->name)->intvalue;
     else
       value++;
     mkenumconst(name, value);
@@ -1461,10 +1532,7 @@ static Node primary_expr() {
 
   // constant
   if ((tok = consume(TK_NUM))) {
-    Node n = mknode(A_NUM);
-    n->type = inttype;
-    n->intvalue = tok->value;
-    return n;
+    return mkiconsstr(tok->name);
   }
 
   // string literal

@@ -1,5 +1,7 @@
 #include <assert.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -229,8 +231,6 @@ enum {
 struct token {
   int kind;
   Token next;
-
-  int value;
   const char* name;
 };
 
@@ -362,7 +362,7 @@ struct node {
   Node body;
 
   // A_NUM, A_ENUM_CONST
-  int intvalue;
+  unsigned long long intvalue;
 
   // A_STRING_LITERAL
   const char* string_value;

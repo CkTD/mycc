@@ -72,9 +72,9 @@ static void gen_stat(Node n);
 
 static void gen_iconst(Node n) {
   // TODO: to hold a unsigned int , maybe use long type for n->intvalue?
-  if (n->type != inttype && n->type != uinttype)
-    error("a number constant must have type int");
-  output("\tmovl\t$%d, %%eax\n", n->intvalue);
+  assert(is_integer(n->type));
+  output("\tmov%c\t$%llu, %%%s\n", size_suffix(n->type->size), n->intvalue,
+         regs(n->type->size, RAX));
   output("\tpushq\t%%rax\n");
 }
 

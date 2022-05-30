@@ -68,8 +68,8 @@ A toy c compiler for learning purpose, support some C99 features and generate co
     - [constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
         - [x] [integral constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
             - [x] decimal
-            - [ ] octal / hex
-            - [ ] suffix
+            - [x] octal / hex
+            - [x] suffix
         - [ ] floating constant
         - [ ] character constant
         - [x] string literials

@@ -227,6 +227,27 @@ const char* escape(const char* s) {
   return stringn(buff, out - buff);
 }
 
+static Token integer_constant() {
+  const char* begin = cc;
+
+  if (*cc == '0' && isdigit(cc[1])) {  // octal
+    while (*cc >= '0' && *cc <= '7')
+      ++cc;
+  } else if (*cc == '0' && (cc[1] == 'x' || cc[1] == 'X')) {  // hexadecimal
+    cc += 2;
+    while ((*cc >= '0' && *cc <= '9') || (*cc >= 'a' && *cc <= 'f') ||
+           (*cc >= 'A' && *cc <= 'F'))
+      ++cc;
+  } else {  // decimal
+    while ((*cc >= '0' && *cc <= '9'))
+      ++cc;
+  }
+
+  while (*cc == 'l' || *cc == 'L' || *cc == 'u' || *cc == 'U')
+    cc++;
+  return mktoken(TK_NUM, stringn(begin, cc - begin));
+}
+
 void tokenize() {
   int length = read_source(&cc);
   ec = cc + length;
@@ -265,12 +286,7 @@ void tokenize() {
 
     // number
     if (isdigit(*cc)) {  // 0-9
-      n = mktoken(TK_NUM, stringn(cc, 0));
-      const char* b = cc;
-      while (isdigit(*++cc))
-        ;
-      n = mktoken(TK_NUM, stringn(b, cc - b));
-      n->value = strtol(b, NULL, 10);
+      n = integer_constant();
     }
     // string literal
     else if (*cc == '"') {
