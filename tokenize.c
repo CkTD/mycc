@@ -246,6 +246,23 @@ void tokenize() {
       continue;
     }
 
+    // comments
+    if (*cc == '/' && cc[1] == '/') {
+      while (cc < ec && *cc != '\n')
+        ++cc;
+      continue;
+    }
+
+    if (*cc == '/' && cc[1] == '*') {
+      cc += 2;
+      while (cc < ec && !(*cc == '*' && cc[1] == '/'))
+        ++cc;
+      if (*cc != '*' || cc[1] != '/')
+        error("unterminated comment");
+      cc += 2;
+      continue;
+    }
+
     // number
     if (isdigit(*cc)) {  // 0-9
       n = mktoken(TK_NUM, stringn(cc, 0));

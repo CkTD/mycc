@@ -75,7 +75,7 @@ A toy c compiler for learning purpose, support some C99 features and generate co
         - [x] string literials
             - [x] simple escape
             - [ ] octal/hex escape
-    - [ ] comments
+    - [x] comments
 - [Statements](http://port70.net/~nsz/c/c99/n1256.html#6.8)
     - [ ] switch statement
     - [ ] goto statement
