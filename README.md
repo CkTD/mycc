@@ -45,8 +45,8 @@ A toy c compiler for learning purpose, support some C99 features and generate co
 
 # TODO
 
-- [ ] [Types](http://port70.net/~nsz/c/c99/n1256.html#6.2.5)
-    - [ ] integrial types
+- [Types](http://port70.net/~nsz/c/c99/n1256.html#6.2.5)
+    - integrial types
         - [x] char
         - [x] shrot
         - [x] int
@@ -62,10 +62,10 @@ A toy c compiler for learning purpose, support some C99 features and generate co
     - [x] struct types
     - [x] union types
     - [ ] type alignment
-- [ ] [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)
+- [Conversions](http://port70.net/~nsz/c/c99/n1256.html#6.3)
     - [ ] floating types
-- [ ] [Lexical elements](http://port70.net/~nsz/c/c99/n1256.html#6.4)
-    - [ ] [constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
+- [Lexical elements](http://port70.net/~nsz/c/c99/n1256.html#6.4)
+    - [constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
         - [x] [integral constant](http://port70.net/~nsz/c/c99/n1256.html#6.4.4)
             - [x] decimal
             - [ ] octal / hex
@@ -76,22 +76,22 @@ A toy c compiler for learning purpose, support some C99 features and generate co
             - [x] simple escape
             - [ ] octal/hex escape
     - [ ] comments
-- [ ] [Statements](http://port70.net/~nsz/c/c99/n1256.html#6.8)
+- [Statements](http://port70.net/~nsz/c/c99/n1256.html#6.8)
     - [ ] switch statement
     - [ ] goto statement
-- [ ] [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
+- [Expressions](http://port70.net/~nsz/c/c99/n1256.html#6.5)
     - [x] operand constrains: null pointer? type qualifer? type compatible?
     - [x] sizeof type-name
     - [x] struct/union related operator
-    - [ ] cast operator
-- [ ] [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
+    - [x] cast operator
+- [Declarations](http://port70.net/~nsz/c/c99/n1256.html#6.7)
     - [x] [typedef](http://port70.net/~nsz/c/c99/n1256.html#6.7.7)
     - [ ] [initialization](http://port70.net/~nsz/c/c99/n1256.html#6.7.8)
     - [ ] declaration of function without name
     - [ ] [struct/union with bit-field member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p9)
     - [ ] [struct/union with flexible array member](http://port70.net/~nsz/c/c99/n1256.html#6.7.2.1p16)
-- [ ] [Preprocessing](http://port70.net/~nsz/c/c99/n1256.html#6.10)
-- [ ] Others
+- [Preprocessing](http://port70.net/~nsz/c/c99/n1256.html#6.10)
+- Others
     - [x] remove print statement by calling library function "printf"
     - [x] for test, compile the source code with gcc, use the output of gcc as target output
     - [ ] for debug: add corrsponding source line in output file 

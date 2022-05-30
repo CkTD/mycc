@@ -208,7 +208,6 @@ static void gen_funccall(Node n) {
 static void gen_conversion(Node n) {
   gen_expr(n->body);
 
-  // for now,  we only have scaler type
   int src_size = is_array(n->body->type) ? 8 : unqual(n->body->type)->size;
   int dst_size = unqual(n->type)->size;
   if (src_size < dst_size) {
@@ -401,6 +400,8 @@ static void gen_shift(Node n) {
 
 static void gen_expr(Node n) {
   switch (n->kind) {
+    case A_NOOP:
+      return;
     case A_NUM:
     case A_ENUM_CONST:
       gen_iconst(n);

@@ -53,6 +53,18 @@ static Node mkcvs(Type t, Node body) {
   return n;
 }
 
+static Node mkcast(Node n, Type ty) {
+  if (ty == voidtype)
+    return mknode(A_NOOP);
+  if (!is_scalar(n->type) || !is_scalar(ty))
+    error("scalar type required for cast operatro");
+
+  // a cast does not yield an lvalue, always create a conversion node
+  n = mkaux(A_CONVERSION, n);
+  n->type = ty;
+  return n;
+}
+
 // usual arithmetic conversions for binary expressions
 static Type usual_arithmetic_conversions(Node node) {
   Type t = usual_arithmetic_type(node->left->type, node->right->type);
@@ -509,10 +521,13 @@ int list_length(Node head) {
 // equality_expr:      relational_expr { '==' | '!='  relational_expr }*
 // relational_expr:    sum_expr { '>' | '<' | '>=' | '<=' shift_expr}*
 // shift_expr:         sum_expr { '<<' | '>>' sum_expr }*
-// sum_expr:           mul_expr { '+'|'-' mul_exp }*
-// mul_exp:            unary_expr { '*'|'/' | '%' unary_expr }*
-// unary_expr:         { '*'|'&'|'+'|'- '|'~'|'!'|'++'|'--'|'sizeof' }?
-//                     postfix_expr
+// sum_expr:           mul_expr { '+'|'-' mul_expr }*
+// mul_expr:           cast_expr { '*'|'/' | '%' cast_expr }*
+// cast_expr:          {'(' type-name ')'}* unary_expr
+// unary_expr:         { {'*'|'&'|'+'|'-'|'~'|'!'|'} cast_expr |
+//                       {'++' |  '--' } * postfix_expr |
+//                       sizeof '(' type_name ')' |
+//                       sizeof unary_expr }
 // postfix_expr:       primary_expr {arg_list|array_subscripting|'++'|'--' }*
 // primary_expr:       identifier | number | string-literal | '('expression ')'
 // arg_list:           '(' expression { ',' expression } ')'
@@ -553,6 +568,7 @@ static Node rel_expr();
 static Node shift_expr();
 static Node sum_expr();
 static Node mul_expr();
+static Node cast_expr();
 static Node unary_expr();
 static Node postfix_expr();
 static Node primary_expr();
@@ -1359,32 +1375,46 @@ static Node sum_expr() {
 }
 
 static Node mul_expr() {
-  Node n = unary_expr();
+  Node n = cast_expr();
   for (;;) {
     if (consume(TK_STAR))
-      n = mkbinary(A_MUL, n, unary_expr());
+      n = mkbinary(A_MUL, n, cast_expr());
     else if (consume(TK_SLASH))
-      n = mkbinary(A_DIV, n, unary_expr());
+      n = mkbinary(A_DIV, n, cast_expr());
     else if (consume(TK_PERCENT))
-      n = mkbinary(A_MOD, n, unary_expr());
+      n = mkbinary(A_MOD, n, cast_expr());
     else
       return n;
   }
 }
 
+static Node cast_expr() {
+  if (match(TK_OPENING_PARENTHESES)) {
+    Token back = token();
+    consume(TK_OPENING_PARENTHESES);
+    if (match_specifier_typedef()) {
+      Type ty = type_name();
+      expect(TK_CLOSING_PARENTHESES);
+      return mkcast(cast_expr(), ty);
+    }
+    set_token(back);
+  }
+  return unary_expr();
+}
+
 static Node unary_expr() {
   if (consume(TK_AND))
-    return mkunary(A_ADDRESS_OF, unary_expr());
+    return mkunary(A_ADDRESS_OF, cast_expr());
   if (consume(TK_STAR))
-    return mkunary(A_DEFERENCE, unary_expr());
+    return mkunary(A_DEFERENCE, cast_expr());
   if (consume(TK_PLUS))
-    return mkunary(A_PLUS, unary_expr());
+    return mkunary(A_PLUS, cast_expr());
   if (consume(TK_MINUS))
-    return mkunary(A_MINUS, unary_expr());
+    return mkunary(A_MINUS, cast_expr());
   if (consume(TK_TILDE))
-    return mkunary(A_B_NOT, unary_expr());
+    return mkunary(A_B_NOT, cast_expr());
   if (consume(TK_EXCLAMATION))
-    return mkunary(A_L_NOT, unary_expr());
+    return mkunary(A_L_NOT, cast_expr());
   if (consume(TK_PLUS_PLUS)) {
     Node u = unary_expr();
     return mkbinary(A_ASSIGN, u, mkbinary(A_ADD, u, mkicons(1)));
@@ -1562,10 +1592,10 @@ static Node member_selection(Node n) {
 
 static Node ordinary(Node n) {
   // http://port70.net/~nsz/c/c99/n1256.html#6.2.3
-
+  const char* name = n->name;
   n = find_symbol(n->name, A_ANY, SCOPE_ALL);
   if (!n)
-    error("undefined variable %s", n->name);
+    error("undefined variable %s", name);
   if (n->kind != A_VAR && n->kind != A_ENUM_CONST)
     error("unknown identifer kind");
   return n;
