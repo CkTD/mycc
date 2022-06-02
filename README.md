@@ -96,4 +96,7 @@ A toy c compiler for learning purpose, support some C99 features and generate co
     - [x] for test, compile the source code with gcc, use the output of gcc as target output
     - [ ] for debug: add corrsponding source line in output file 
     - [ ] add source location in error message
+        - [ ] associate related Token to Node and Type
+        - [ ] distinguish identifiers referencing to the same var (we can error at current identifier that reference the var, instead of where the var declared)
+    - [ ] error recovery, (test/085.c)
     - [x] read srouce code from file, write output to file

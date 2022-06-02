@@ -335,6 +335,7 @@ Type composite_type(Type t1, Type t2) {
       last = last->next = calloc(1, sizeof(struct proto));
       last->name = p1->name;
       last->type = composite_type(p1->type, p2->type);
+      last->token = p1->token;
     }
     return function_type(composite_type(t1->base, t2->base), head.next);
   }

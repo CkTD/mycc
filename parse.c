@@ -24,33 +24,35 @@ static int is_modifiable_lvalue(Node node, int ignore_qual) {
          !is_struct_with_const_member(t);
 }
 
-static Node mknode(int kind) {
+static Node mknode(int kind, Token token) {
   Node n = calloc(1, sizeof(struct node));
   n->kind = kind;
+  n->token = token;
   return n;
 }
 
 static Node mkicons(int intvalue) {
-  Node n = mknode(A_NUM);
+  Node n = mknode(A_NUM, NULL);
   n->type = inttype;
   n->intvalue = intvalue;
   return n;
 }
 
-static Node mkiconsstr(const char* str) {
-  Node n = mknode(A_NUM);
+static Node mkiconsstr(Token token) {
+  Node n = mknode(A_NUM, token);
   char* suffix;
-  n->intvalue = strtoull(str, &suffix, 0);
+  n->intvalue = strtoull(token->name, &suffix, 0);
   if (errno == ERANGE)
-    error("integer constant %s to large", str);
+    errorat(token, "integer constant to large");
 
-  int is_oct_or_hex = (*str == '0') && ((str[1] >= '0' && str[1] <= '7') ||
-                                        (str[1] == 'x' || str[1] == 'X'));
+  int is_oct_or_hex = (*token->name == '0') &&
+                      ((token->name[1] >= '0' && token->name[1] <= '7') ||
+                       (token->name[1] == 'x' || token->name[1] == 'X'));
 
   int is_none = strlen(suffix) == 0;
   int is_u = !strcmp(suffix, "u") || !strcmp(suffix, "U");
   int is_l = !strcmp(suffix, "l") || !strcmp(suffix, "L");
-  int is_ll = !strcmp(suffix, "ll") || !strcmp(suffix, "LL");
+  is_l |= !strcmp(suffix, "ll") || !strcmp(suffix, "LL");
   int is_ul = !strcmp(suffix, "ul") || !strcmp(suffix, "UL") ||
               !strcmp(suffix, "Ul") || !strcmp(suffix, "uL") ||
               !strcmp(suffix, "lu") || !strcmp(suffix, "LU") ||
@@ -77,7 +79,7 @@ static Node mkiconsstr(const char* str) {
       n->type = ulongtype;
       return n;
     }
-    error("integer constant too large");
+    errorat(token, "integer constant too large");
   } else if (is_ul) {
     if (n->intvalue <= ULONG_MAX) {
       n->type = ulongtype;
@@ -93,7 +95,7 @@ static Node mkiconsstr(const char* str) {
       n->type = ulongtype;
       return n;
     }
-  } else if (is_l || is_ll) {
+  } else if (is_l) {
     if (n->intvalue <= LONG_MAX) {
       n->type = longtype;
       return n;
@@ -102,14 +104,14 @@ static Node mkiconsstr(const char* str) {
       n->type = ulongtype;
       return n;
     }
-    error("integer constant too large");
+    errorat(token, "integer constant too large");
   }
-  error("invalid integer suffix %s", suffix);
+  errorat(token, "invalid integer suffix %s", suffix);
   assert(0);
 }
 
 static Node mkaux(int kind, Node body) {
-  Node n = mknode(kind);
+  Node n = mknode(kind, NULL);
   n->body = body;
   return n;
 }
@@ -126,9 +128,9 @@ static Node mkcvs(Type t, Node body) {
 
 static Node mkcast(Node n, Type ty) {
   if (ty == voidtype)
-    return mknode(A_NOOP);
+    return mknode(A_NOOP, NULL);
   if (!is_scalar(n->type) || !is_scalar(ty))
-    error("scalar type required for cast operatro");
+    errorat(n->token, "scalar type required for cast operator");
 
   // a cast does not yield an lvalue, always create a conversion node
   n = mkaux(A_CONVERSION, n);
@@ -151,8 +153,8 @@ static Node unqual_array_to_ptr(Node n) {
   return n;
 }
 
-static Node mkunary(int kind, Node left) {
-  Node n = mknode(kind);
+static Node mkunary(int kind, Node left, Token token) {
+  Node n = mknode(kind, token);
   n->left = (kind == A_ADDRESS_OF || kind == A_POSTFIX_INC ||
              kind == A_POSTFIX_DEC || kind == A_SIZE_OF)
                 ? left
@@ -166,7 +168,7 @@ static Node mkunary(int kind, Node left) {
       n->type = ptr_type(left->type);
       return n;
     }
-    error("invalid operand");
+    errorat(n->token, "invalid operand of unary '&' (lvalue required)");
   }
   if (kind == A_DEFERENCE) {
     if (left->kind == A_ADDRESS_OF)
@@ -175,7 +177,8 @@ static Node mkunary(int kind, Node left) {
       n->type = deref_type(left->type);
       return n;
     }
-    error("invalid operand");
+    errorat(n->token, "invalid operand of unary '*' (have '%s')",
+            left->type->str);
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.3.3
@@ -185,7 +188,8 @@ static Node mkunary(int kind, Node left) {
       n->type = n->left->type;
       return n;
     }
-    error("invalid operand");
+    errorat(n->token, "invalid operand of unary +/- (have '%s')",
+            n->left->type->str);
   }
   if (kind == A_B_NOT) {
     if (is_integer(n->left->type)) {
@@ -193,21 +197,25 @@ static Node mkunary(int kind, Node left) {
       n->type = n->left->type;
       return n;
     }
-    error("invalid operand");
+    errorat(n->token, "invalid operand of unary '~' (have '%s')",
+            n->left->type->str);
   }
   if (kind == A_L_NOT) {
     if (is_scalar(n->left->type)) {
       n->type = inttype;
       return n;
     }
-    error("invalid operand");
+    errorat(n->token, "invalid operand of unary '!' (have '%s')",
+            n->left->type->str);
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.4
   if (kind == A_POSTFIX_INC || kind == A_POSTFIX_DEC) {
-    if (!is_modifiable_lvalue(n->left, 0) ||
-        !(is_arithmetic(n->left->type) || is_ptr(n->left->type)))
-      error("invalid operand");
+    if (!is_modifiable_lvalue(n->left, 0))
+      errorat(n->token, "invalid operand of postfix ++/-- (lvalue required)");
+    if (!(is_arithmetic(n->left->type) || is_ptr(n->left->type)))
+      errorat(n->token, "invalid operand of postfix ++/-- (have '%s')",
+              n->left->type->str);
     n->left = mkcvs(unqual(n->left->type), left);
     n->type = n->left->type;
     return mkcvs(integral_promote(n->type), n);
@@ -222,8 +230,8 @@ static Node mkunary(int kind, Node left) {
   assert(0);
 }
 
-static Node mkbinary(int kind, Node left, Node right) {
-  Node n = mknode(kind);
+static Node mkbinary(int kind, Node left, Node right, Token token) {
+  Node n = mknode(kind, token);
   n->left =
       (kind == A_ASSIGN || kind == A_INIT) ? left : unqual_array_to_ptr(left);
   n->right = unqual_array_to_ptr(right);
@@ -231,7 +239,8 @@ static Node mkbinary(int kind, Node left, Node right) {
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.16
   if (kind == A_ASSIGN || kind == A_INIT) {
     if (!is_modifiable_lvalue(n->left, kind == A_INIT))
-      error("invalid left operand of assignment");
+      errorat(n->left->token,
+              "invalid left operand of assignment(modifiable lvalue required)");
     if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
     } else if (is_ptr(n->left->type) && n->right->kind == A_NUM &&
                n->right->intvalue == 0) {
@@ -240,16 +249,16 @@ static Node mkbinary(int kind, Node left, Node right) {
       if (kind == A_ASSIGN) {
         if (!is_const(deref_type(n->left->type)) &&
             is_const(deref_type(n->right->type)))
-          error("assign discards const");
+          errorat(n->token, "assign discards const");
       }
       if (!is_compatible_type(unqual(n->left->type), n->right->type))
-        error("assign with incompatible type");
+        errorat(n->token, "assign with incompatible type");
     } else if (is_struct_or_union(n->left->type) &&
                is_struct_or_union(n->right->type)) {
       if (!is_compatible_type(unqual(n->left->type), n->right->type))
-        error("assign with incompatible type");
+        errorat(n->token, "assign with incompatible type");
     } else
-      error("assign with incompatible type");
+      errorat(n->token, "assign with incompatible type");
 
     n->type = unqual(n->left->type);
     n->right = mkcvs(n->type, n->right);
@@ -274,7 +283,7 @@ static Node mkbinary(int kind, Node left, Node right) {
       n->type = inttype;
       return n;
     }
-    error("invalid operands");
+    errorat(n->token, "invalid operands of logical or/and (scalar required)");
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.10
@@ -285,7 +294,7 @@ static Node mkbinary(int kind, Node left, Node right) {
       n->type = usual_arithmetic_conversions(n);
       return n;
     }
-    error("invalid operand");
+    errorat(n->token, "invalid operand of bitwise operator, scalar required");
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.9
@@ -307,10 +316,12 @@ static Node mkbinary(int kind, Node left, Node right) {
     }
     if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
       if (!is_compatible_type(n->left->type, n->right->type))
-        error("incompatible type");
+        errorat(n->token, "operand have incompatible type");
       n->type = inttype;
       return n;
     }
+
+    errorat(n->token, "invalid operand");
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.7
@@ -321,7 +332,7 @@ static Node mkbinary(int kind, Node left, Node right) {
       n->right = mkcvs(n->right->type, n->right);
       return n;
     }
-    error("invalid operand");
+    errorat(n->token, "invalid operand (integer required)");
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.6
@@ -331,16 +342,18 @@ static Node mkbinary(int kind, Node left, Node right) {
       return n;
     }
     if (is_integer(n->left->type) && is_ptr(n->right->type)) {
-      n->left = mkbinary(A_MUL, n->left, mkicons(n->right->type->base->size));
+      n->left =
+          mkbinary(A_MUL, n->left, mkicons(n->right->type->base->size), NULL);
       n->type = n->right->type;
       return n;
     }
     if (is_ptr(n->left->type) && is_integer(n->right->type)) {
-      n->right = mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size));
+      n->right =
+          mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size), NULL);
       n->type = n->left->type;
       return n;
     }
-    error("invalid operands to binary \"+\"");
+    errorat(n->token, "invalid operands to binary +");
   }
   if (kind == A_SUB) {
     if (is_arithmetic(n->left->type) && is_arithmetic(n->right->type)) {
@@ -348,18 +361,20 @@ static Node mkbinary(int kind, Node left, Node right) {
       return n;
     }
     if (is_ptr(n->left->type) && is_integer(n->right->type)) {
-      n->right = mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size));
+      n->right =
+          mkbinary(A_MUL, n->right, mkicons(n->left->type->base->size), NULL);
       n->type = n->left->type;
       return n;
     }
     if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
       if (!is_compatible_type(n->left->type, n->right->type))
-        error("invalid operands to binary, incompatiable pointer");
+        errorat(n->token,
+                "invalid operands to binary -, incompatiable pointer");
       n->type = inttype;
-      return mkbinary(A_DIV, n, mkicons(n->left->type->base->size));
+      return mkbinary(A_DIV, n, mkicons(n->left->type->base->size), NULL);
     }
 
-    error("invalid operands to binary \"-\"");
+    errorat(n->token, "invalid operands to binary -");
   }
 
   // http://port70.net/~nsz/c/c99/n1256.html#6.5.5
@@ -368,21 +383,21 @@ static Node mkbinary(int kind, Node left, Node right) {
       n->type = usual_arithmetic_conversions(n);
       return n;
     }
-    error("invalid operands to binary");
+    errorat(n->token, "invalid operands to binary (arighmetic required)");
   }
   if (kind == A_MOD) {
     if (is_integer(n->left->type) && is_integer(n->right->type)) {
       n->type = usual_arithmetic_conversions(n);
       return n;
     }
-    error("invalid operands to binary");
+    errorat(n->token, "invalid operands to binary (integer required)");
   }
 
   assert(0);
 }
 
-static Node mkternary(Node cond, Node left, Node right) {
-  Node n = mknode(A_TERNARY);
+static Node mkternary(Node cond, Node left, Node right, Token token) {
+  Node n = mknode(A_TERNARY, token);
   n->cond = unqual_array_to_ptr(cond);
   n->left = unqual_array_to_ptr(left);
   n->right = unqual_array_to_ptr(right);
@@ -394,7 +409,7 @@ static Node mkternary(Node cond, Node left, Node right) {
 
   if (is_ptr(n->left->type) && is_ptr(n->right->type)) {
     if (!is_compatible_type(n->left->type, n->right->type))
-      error("pointer type mismatch");
+      errorat(n->token, "pointer type mismatch in ternary");
     n->type = n->left->type;
     if (is_array(n->type))
       n->type = array_to_ptr(n->type);
@@ -404,59 +419,62 @@ static Node mkternary(Node cond, Node left, Node right) {
   assert(0);
 }
 
-static Node mkvar(const char* name, Type ty) {
-  Node n = mknode(A_VAR);
-  n->name = name;
+static Node mkvar(Token token, Type ty) {
+  Node n = mknode(A_VAR, token);
+  n->name = token->name;
   n->type = ty;
+  n->token = token;
   n->is_global = current_func ? 0 : 1;
   install_symbol(n, SCOPE_INNER);
   return n;
 }
 
-static Node mkfunc(const char* name, Type ty) {
-  Node n = find_symbol(name, A_FUNCTION, SCOPE_FILE);
+static Node mkfunc(Token token, Type ty) {
+  Node n = find_symbol(token, A_FUNCTION, SCOPE_FILE);
   if (n) {
-    if (!is_compatible_type(n->type, ty))
-      error("conflicting types for function %s", name);
+    if (!is_compatible_type(n->type, ty)) {
+      infoat(token, "previous:");
+      errorat(n->token, "conflicting types for function %s", token->name);
+    }
+    n->token = token;
     n->type =
         n->body ? composite_type(n->type, ty) : composite_type(ty, n->type);
     return n;
   }
 
-  n = mknode(A_FUNCTION);
-  n->name = name;
+  n = mknode(A_FUNCTION, token);
+  n->name = token->name;
   n->type = ty;
   install_symbol(n, SCOPE_FILE);
 
   return n;
 }
 
-static Node mkstrlit(const char* str) {
-  Node n = mknode(A_STRING_LITERAL);
-  n->string_value = str;
-  n->type = array_type(chartype, strlen(str) + 1);
+static Node mkstrlit(Token token) {
+  Node n = mknode(A_STRING_LITERAL, token);
+  n->string_value = token->name;
+  n->type = array_type(chartype, strlen(n->string_value) + 1);
   install_symbol(n, SCOPE_FILE);
   return n;
 }
 
-static Node mktag(const char* name, Type ty) {
-  char buff[4096];
-  sprintf(buff, ".tag.%s", name);
-  const char* search_name = string(buff);
-
-  Node n = find_symbol(search_name, A_TAG, SCOPE_INNER);
+static Node mktag(Token tok, Type ty) {
+  Node n = find_symbol(tok, A_TAG, SCOPE_INNER);
   if (n) {
-    if (is_enum(ty))
-      error("redefine tag \"%s\"", name);
-    else if (!ty->member) {
+    if (is_enum(ty)) {
+      infoat(n->token, "originally defined here:");
+      errorat(tok, "redeclaration tag");
+    } else if (!ty->member) {
     } else if (!n->type->member) {
+      n->token = tok;
       update_struct_or_union_type(n->type, ty->member);
     } else {
-      error("redefine tag \"%s\"", name);
+      infoat(n->token, "originally defined here:");
+      errorat(tok, "redeclaration tag");
     }
   } else {
-    n = mknode(A_TAG);
-    n->name = search_name;
+    n = mknode(A_TAG, tok);
+    n->name = tok->name;
     n->type = ty;
     install_symbol(n, SCOPE_INNER);
   }
@@ -465,30 +483,28 @@ static Node mktag(const char* name, Type ty) {
 
 // tag for struct/union/enum share namesapce
 // http://port70.net/~nsz/c/c99/n1256.html#6.2.3
-static Node find_tag(const char* name, int type_kind) {
-  char buff[4096];
-  sprintf(buff, ".tag.%s", name);
-  const char* search_name = string(buff);
-
-  Node n = find_symbol(search_name, A_TAG, SCOPE_ALL);
-  if (n && unqual(n->type)->kind != type_kind)
-    error("conflict type %s", name);
+static Node find_tag(Token tok, int type_kind) {
+  Node n = find_symbol(tok, A_TAG, SCOPE_ALL);
+  if (n && unqual(n->type)->kind != type_kind) {
+    infoat(n->token, "originally defined as:");
+    errorat(tok, "conflict tag");
+  }
 
   return n;
 }
 
-static Node mkenumconst(const char* name, int value) {
-  Node n = mknode(A_ENUM_CONST);
-  n->name = name;
+static Node mkenumconst(Token tok, int value) {
+  Node n = mknode(A_ENUM_CONST, tok);
+  n->name = tok->name;
   n->type = inttype;
   n->intvalue = value;
   install_symbol(n, SCOPE_INNER);
   return n;
 }
 
-static Node mktypedef(const char* name, Type ty) {
-  Node n = mknode(A_TYPEDEF);
-  n->name = name;
+static Node mktypedef(Token tok, Type ty) {
+  Node n = mknode(A_TYPEDEF, tok);
+  n->name = tok->name;
   n->type = ty;
   install_symbol(n, SCOPE_INNER);
   return n;
@@ -501,7 +517,7 @@ static int match_specifier_typedef() {
   if (!match(TK_IDENT))
     return 0;
 
-  Node n = find_symbol(token()->name, A_ANY, SCOPE_ALL);
+  Node n = find_symbol(token(), A_ANY, SCOPE_ALL);
 
   return n && n->kind == A_TYPEDEF;
 }
@@ -611,9 +627,9 @@ static Type struct_union_specifier();
 static Member struct_declaration_list();
 static Type enum_specifier();
 static Node init_declarator(Type ty, int is_typedef);
-static Type declarator(Type ty, const char** name);
+static Type declarator(Type ty, Token* tok);
 static Type pointer(Type ty);
-static Type direct_declarator(Type ty, const char** name);
+static Type direct_declarator(Type ty, Token* tok);
 static Type array_declarator(Type base);
 static Type function_declarator(Type ty);
 static Type type_name();
@@ -665,12 +681,13 @@ static void trans_unit() {
 // for function definition(called by trans_unit)
 //    make function node && fill body(return NULL)
 static Node declaration() {
+  Token tok;
   int is_typedef;
   Type ty = declaration_specifiers(&is_typedef);
 
-  if (consume(TK_SIMI)) {
+  if ((tok = consume(TK_SIMI))) {
     if (!is_struct_or_union(ty) && !is_enum(ty))
-      error("declare nothing");
+      errorat(tok, "declare nothing");
     return NULL;
   }
 
@@ -716,6 +733,7 @@ enum {
 };
 
 static Type declaration_specifiers(int* is_typedef) {
+  Token tok;
   Type struct_or_union_type = NULL;
   Type enum_type = NULL;
   Type typedef_type = NULL;
@@ -723,61 +741,61 @@ static Type declaration_specifiers(int* is_typedef) {
   if (is_typedef)
     *is_typedef = 0;
   for (;;) {
-    if (consume(TK_VOID)) {
+    if ((tok = consume(TK_VOID))) {
       if (get_specifier(specifiers, SPEC_VOID))
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       set_specifier(specifiers, SPEC_VOID);
-    } else if (consume(TK_CHAR)) {
+    } else if ((tok = consume(TK_CHAR))) {
       if (get_specifier(specifiers, SPEC_CHAR))
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       set_specifier(specifiers, SPEC_CHAR);
-    } else if (consume(TK_SHORT)) {
+    } else if ((tok = consume(TK_SHORT))) {
       if (get_specifier(specifiers, SPEC_SHORT))
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       set_specifier(specifiers, SPEC_SHORT);
-    } else if (consume(TK_INT)) {
+    } else if ((tok = consume(TK_INT))) {
       if (get_specifier(specifiers, SPEC_INT))
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       set_specifier(specifiers, SPEC_INT);
-    } else if (consume(TK_LONG)) {
+    } else if ((tok = consume(TK_LONG))) {
       if (get_specifier(specifiers, SPEC_LONG1)) {
         if (get_specifier(specifiers, SPEC_LONG2))
-          error("two or more data types in declaration specifiers");
+          errorat(tok, "two or more data types in declaration specifiers");
         else
           set_specifier(specifiers, SPEC_LONG2);
       } else {
         set_specifier(specifiers, SPEC_LONG1);
       }
-    } else if (consume(TK_UNSIGNED)) {
+    } else if ((tok = consume(TK_UNSIGNED))) {
       if (get_specifier(specifiers, SPEC_UNSIGNED))
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       set_specifier(specifiers, SPEC_UNSIGNED);
-    } else if (consume(TK_SIGNED)) {
+    } else if ((tok = consume(TK_SIGNED))) {
       if (get_specifier(specifiers, SPEC_SIGNED))
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       set_specifier(specifiers, SPEC_SIGNED);
-    } else if (consume(TK_CONST)) {
+    } else if ((tok = consume(TK_CONST))) {
       set_specifier(specifiers, SPEC_CONST);
-    } else if (consume(TK_VOLATILE)) {
+    } else if ((tok = consume(TK_VOLATILE))) {
       set_specifier(specifiers, SPEC_VOLATILE);
-    } else if (consume(TK_RESTRICT)) {
+    } else if ((tok = consume(TK_RESTRICT))) {
       set_specifier(specifiers, SPEC_RESTRICT);
-    } else if (match(TK_STRUCT) || match(TK_UNION)) {
+    } else if ((tok = match(TK_STRUCT)) || (tok = match(TK_UNION))) {
       if (struct_or_union_type)
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       struct_or_union_type = struct_union_specifier();
-    } else if (match(TK_ENUM)) {
+    } else if ((tok = match(TK_ENUM))) {
       if (enum_type)
-        error("two or more data types in declaration specifiers");
+        errorat(tok, "two or more data types in declaration specifiers");
       enum_type = enum_specifier();
-    } else if (consume(TK_TYPEDEF)) {
+    } else if ((tok = consume(TK_TYPEDEF))) {
       if (!is_typedef)
-        error("unexpected typedef");
+        errorat(tok, "unexpected typedef");
       if (*is_typedef)
-        error("duplicate typedef");
+        errorat(tok, "duplicate typedef");
       *is_typedef = 1;
     } else if (match(TK_IDENT)) {
-      Node n = find_symbol(token()->name, A_ANY, SCOPE_ALL);
+      Node n = find_symbol(token(), A_ANY, SCOPE_ALL);
       if (typedef_type || !n || n->kind != A_TYPEDEF)
         break;
       expect(TK_IDENT);
@@ -844,92 +862,102 @@ static Type declaration_specifiers(int* is_typedef) {
   }
 
   if (ty && struct_or_union_type)
-    error("two or more data types in declaration specifiers");
+    errorat(tok, "two or more data types in declaration specifiers");
   ty = ty ? ty : struct_or_union_type;
   if (ty && enum_type)
-    error("two or more data types in declaration specifiers");
+    errorat(tok, "two or more data types in declaration specifiers");
   ty = ty ? ty : enum_type;
   if (ty && typedef_type)
-    error("two or more data types in declaration specifiers");
+    errorat(tok, "two or more data types in declaration specifiers");
   ty = ty ? ty : typedef_type;
   if (!ty)
-    error("no data type in declaration specifiers");
+    errorat(token(), "no data type in declaration specifiers");
 
   // cache nothing in register, so all variable is VOLATILE?
   if (get_specifier(specifiers, SPEC_CONST))
     ty = const_type(ty);
   if (get_specifier(specifiers, SPEC_RESTRICT))
-    error("not implemented: restrict");
+    errorat(tok, "not implemented: restrict");
   return ty;
 }
 
-static Member mkmember(Type type, const char* name) {
-  if (!name)
-    error("declare nothing");
+static Member mkmember(Type type, Token tok) {
   Member p = calloc(1, sizeof(struct member));
   p->type = type;
-  p->name = name;
+  p->name = tok->name;
+  p->token = tok;
   return p;
 }
 
 static void link_member(Member head, Member m) {
   while (head->next) {
     if (m->name && head->next->name == m->name)
-      error("redefinition of member %s", m->name);
+      errorat(token(), "redefinition of member %s", m->name);
     head = head->next;
   }
   head->next = m;
 }
 
 static Member struct_declaration_list() {
+  Token tok;
   struct member head = {0};
   if (consume(TK_OPENING_BRACES)) {
-    while (!consume(TK_CLOSING_BRACES)) {
+    while (!(tok = consume(TK_CLOSING_BRACES))) {
       Type ty = declaration_specifiers(NULL);
-      const char* mem_name = NULL;
+      Token mem_name = NULL;
       Type mem_ty = declarator(ty, &mem_name);
+      if (!mem_name)
+        errorat(token(), "empty member name");
       link_member(&head, mkmember(mem_ty, mem_name));
       while (!consume(TK_SIMI)) {
         expect(TK_COMMA);
         mem_name = NULL;
         mem_ty = declarator(ty, &mem_name);
+        if (!mem_name)
+          errorat(token(), "empty member name");
         link_member(&head, mkmember(mem_ty, mem_name));
       }
     }
 
     if (!head.next)
-      error("struct has no members");
+      errorat(tok, "empty struct");
   }
   return head.next;
 }
 
 static Type struct_union_specifier() {
   int ty_kind = consume(TK_STRUCT) ? TY_STRUCT : (expect(TK_UNION), TY_UNION);
-  const char* name = match(TK_IDENT) ? consume(TK_IDENT)->name : NULL;
+  Token tok = consume(TK_IDENT);
+  if (tok) {
+    char buff[4096];
+    sprintf(buff, ".tag.%s", tok->name);
+    tok->name = string(buff);
+  }
   Member member = struct_declaration_list();
   if (member) {
-    Type ty = struct_or_union_type(member, name, ty_kind);
-    if (name)
-      mktag(name, ty);
+    Type ty = struct_or_union_type(member, tok ? tok->name : NULL, ty_kind);
+    if (tok)
+      mktag(tok, ty);
     return ty;
   }
 
-  Node tag = find_tag(name, ty_kind);
+  Node tag = find_tag(tok, ty_kind);
   if (!tag)
-    tag = mktag(name, struct_or_union_type(NULL, name, ty_kind));
+    tag = mktag(tok, struct_or_union_type(NULL, tok->name, ty_kind));
   return tag->type;
 }
 
 static void enumerator_list() {
+  Token tok;
   expect(TK_OPENING_BRACES);
   int value = -1;
   while (!consume(TK_CLOSING_BRACES)) {
-    const char* name = expect(TK_IDENT)->name;
+    tok = expect(TK_IDENT);
     if (consume(TK_EQUAL))
-      value = mkiconsstr(consume(TK_NUM)->name)->intvalue;
+      value = mkiconsstr(consume(TK_NUM))->intvalue;
     else
       value++;
-    mkenumconst(name, value);
+    mkenumconst(tok, value);
     if (!match(TK_CLOSING_BRACES))
       expect(TK_COMMA);
   }
@@ -937,16 +965,21 @@ static void enumerator_list() {
 
 static Type enum_specifier() {
   expect(TK_ENUM);
-  const char* tag_name = match(TK_IDENT) ? consume(TK_IDENT)->name : NULL;
+  Token tok = consume(TK_IDENT);
+  if (tok) {
+    char buff[4096];
+    sprintf(buff, ".tag.%s", tok->name);
+    tok->name = string(buff);
+  }
   if (match(TK_OPENING_BRACES)) {
     enumerator_list();
-    Type ty = enum_type(tag_name);
-    if (tag_name)
-      mktag(tag_name, ty);
+    Type ty = enum_type(tok->name);
+    if (tok)
+      mktag(tok, ty);
     return ty;
   }
 
-  return find_tag(tag_name, TY_ENUM)->type;
+  return find_tag(tok, TY_ENUM)->type;
 }
 
 // returned value for different kind of declarotor
@@ -954,30 +987,28 @@ static Type enum_specifier() {
 //    local variable:  nodes for init assign
 //    global variable: NULL
 static Node init_declarator(Type ty, int is_typedef) {
-  const char* name = NULL;
-  ty = declarator(ty, &name);
-  if (!name)
-    error("identifier name required in declarator");
+  Token tok;
+  ty = declarator(ty, &tok);
+  if (!tok)
+    errorat(token(), "identifier name required in declarator");
 
   if (is_typedef) {
-    mktypedef(name, ty);
+    mktypedef(tok, ty);
     return NULL;
   }
 
   if (is_funcion(ty))
-    return mkfunc(name, ty);
+    return mkfunc(tok, ty);
 
-  Node n = mkvar(name, ty);
-  if (consume(TK_EQUAL)) {
+  Node n = mkvar(tok, ty);
+  if ((tok = consume(TK_EQUAL))) {
     Node e = assign_expr();
     if (is_array(ty))
-      error("not implemented: initialize array");
+      errorat(n->token, "not implemented: initialize array");
     if (current_func)
-      return mkbinary(A_INIT, n, e);
+      return mkbinary(A_INIT, n, e, tok);
     if (e->kind != A_NUM && e->kind != A_STRING_LITERAL)
-      error(
-          "global variable can only be initializd by integer constant or "
-          "string literal");
+      errorat(n->token, "initializer element is not constant");
     n->init_value = e;
     return NULL;
   }
@@ -1011,10 +1042,10 @@ static Type construct_type(Type base, Type ty) {
 // indicate a function declarator.  It not a problem for function pointer, for
 // example: "int (*)(int,...)". This should be supported because:
 //   (http://port70.net/~nsz/c/c99/n1256.html#6.3.2.1p4)
-static Type declarator(Type base, const char** name) {
+static Type declarator(Type base, Token* tok) {
   base = pointer(base);
 
-  Type ty = direct_declarator(placeholdertype, name);
+  Type ty = direct_declarator(placeholdertype, tok);
 
   if (match(TK_OPENING_PARENTHESES))
     base = function_declarator(base);
@@ -1025,19 +1056,20 @@ static Type declarator(Type base, const char** name) {
 }
 
 static Type pointer(Type ty) {
+  Token tok;
   while (consume(TK_STAR)) {
     ty = ptr_type(ty);
     int q_const = 0, q_restrict = 0;
     for (;;) {
-      if (consume(TK_CONST))
+      if ((tok = consume(TK_CONST)))
         q_const = 1;
-      else if (consume(TK_VOLATILE))
+      else if ((tok = consume(TK_VOLATILE)))
         ;
-      else if (consume(TK_RESTRICT))
+      else if ((tok = consume(TK_RESTRICT)))
         q_restrict = 1;
       else {
         if (q_restrict)
-          error("not implemented: restrict pointer");
+          errorat(tok, "not implemented: restrict pointer");
         if (q_const)
           ty = const_type(ty);
         break;
@@ -1047,13 +1079,11 @@ static Type pointer(Type ty) {
   return ty;
 }
 
-static Type direct_declarator(Type ty, const char** name) {
-  Token tok;
-  if ((tok = consume(TK_IDENT))) {
-    *name = tok->name;
+static Type direct_declarator(Type ty, Token* tok) {
+  if ((*tok = consume(TK_IDENT))) {
     return ty;
   } else if (consume(TK_OPENING_PARENTHESES)) {
-    ty = declarator(ty, name);
+    ty = declarator(ty, tok);
     expect(TK_CLOSING_PARENTHESES);
     return ty;
   }
@@ -1068,52 +1098,57 @@ static Type array_declarator(Type base) {
     Node n = expression();
     expect(TK_CLOSING_BRACKETS);
     if (n->kind != A_NUM)
-      error("not implemented: non integer constant array length");
+      errorat(n->token, "not implemented: variable length array");
     if (n->intvalue == 0)
-      error("array size shall greater than zeror");
+      errorat(n->token, "array size shall greater than zero");
     return array_type(array_declarator(base), n->intvalue);
   }
   return base;
 }
 
-static Proto mkproto(Type type, const char* name) {
+static Proto mkproto(Type type, Token token) {
   Proto p = calloc(1, sizeof(struct proto));
   p->type = type;
-  p->name = name;
+  p->name = token ? token->name : NULL;
+  p->token = token;
   return p;
 }
 
 static void link_proto(Proto head, Proto p) {
   if ((head->next && head->next->type == voidtype) ||  // other follow void
       (p->type == voidtype && head->next))             // void is not first
-    error("void must be the only parameter");
+    // TODO: keep type's token...
+    errorat(p->token ? p->token : token(), "void must be the only parameter");
 
   while (head->next) {
-    if (p->name && head->next->name == p->name)
-      error("redefinition of parameter %s", p->name);
+    if (p->name && head->next->name == p->name) {
+      infoat(head->next->token, "previous:");
+      errorat(p->token, "redeclaration of parameter %s", p->name);
+    }
     head = head->next;
   }
   head->next = p;
 }
 
 static Type function_declarator(Type ty) {
+  Token tok;
   struct proto head = {0};
 
   expect(TK_OPENING_PARENTHESES);
   while (!consume(TK_CLOSING_PARENTHESES)) {
-    if (consume(TK_ELLIPSIS)) {
+    if ((tok = consume(TK_ELLIPSIS))) {
       if (!head.next)
-        error("a named paramenter is required before ...");
+        errorat(tok, "a named paramenter is required before ...");
       link_proto(&head, mkproto(type(TY_VARARG, NULL, 0), NULL));
       expect(TK_CLOSING_PARENTHESES);
       break;
     }
 
-    const char* name = NULL;
-    Type type = declarator(declaration_specifiers(NULL), &name);
+    Token tok = NULL;
+    Type type = declarator(declaration_specifiers(NULL), &tok);
     if (is_array(type))
       type = array_to_ptr(type);
-    link_proto(&head, mkproto(type, name));
+    link_proto(&head, mkproto(type, tok));
 
     if (!match(TK_CLOSING_PARENTHESES))
       expect(TK_COMMA);
@@ -1127,16 +1162,17 @@ static Type function_declarator(Type ty) {
 
 static Type type_name() {
   Type ty = declaration_specifiers(NULL);
-  const char* name = NULL;
+  Token name = NULL;
   ty = declarator(ty, &name);
   if (name)
-    error("type name required");
+    errorat(name, "type name required");
   return ty;
 }
 
 static Node function(Node f) {
+  // TODO: how can we get previous definition
   if (f->body)
-    error("redefinition of function %s", f->name);
+    errorat(f->token, "redefinition of function %s", f->name);
 
   enter_func(f);
   enter_scope();
@@ -1144,9 +1180,12 @@ static Node function(Node f) {
   f->params = mklist(NULL);
   if (f->type->proto->type != voidtype)
     for (Proto p = f->type->proto; p; p = p->next) {
-      if (!p->name)
-        error("omitting parameter name in function definition");
-      list_insert(f->params, mklist(mkvar(p->name, p->type)));
+      if (p->type->kind == TY_VARARG)
+        continue;
+      if (!p->token)
+        // TODO: errorat that type
+        errorat(f->token, "omitting parameter name in function definition");
+      list_insert(f->params, mklist(mkvar(p->token, p->type)));
     }
 
   f->body = comp_stat(1);
@@ -1157,6 +1196,8 @@ static Node function(Node f) {
 }
 
 static Node statement(int reuse_scope) {
+  Token tok;
+
   // compound statement
   if (match(TK_OPENING_BRACES)) {
     return comp_stat(reuse_scope);
@@ -1183,16 +1224,16 @@ static Node statement(int reuse_scope) {
   }
 
   // jump_stat
-  if (consume(TK_BREAK)) {
+  if ((tok = consume(TK_BREAK))) {
     expect(TK_SIMI);
-    return mknode(A_BREAK);
+    return mknode(A_BREAK, tok);
   }
-  if (consume(TK_CONTINUE)) {
+  if ((tok = consume(TK_CONTINUE))) {
     expect(TK_SIMI);
-    return mknode(A_CONTINUE);
+    return mknode(A_CONTINUE, tok);
   }
-  if (consume(TK_RETURN)) {
-    Node n = mknode(A_RETURN);
+  if ((tok = consume(TK_RETURN))) {
+    Node n = mknode(A_RETURN, tok);
     if (consume(TK_SIMI))
       return n;
     n->body = mkcvs(current_func->type->base, expression());
@@ -1225,8 +1266,7 @@ static Node comp_stat(int reuse_scope) {
 }
 
 static Node if_stat() {
-  Node n = mknode(A_IF);
-  expect(TK_IF);
+  Node n = mknode(A_IF, expect(TK_IF));
   expect(TK_OPENING_PARENTHESES);
   n->cond = expression();
   expect(TK_CLOSING_PARENTHESES);
@@ -1238,8 +1278,7 @@ static Node if_stat() {
 }
 
 static Node while_stat() {
-  Node n = mknode(A_FOR);
-  expect(TK_WHILE);
+  Node n = mknode(A_FOR, expect(TK_WHILE));
   expect(TK_OPENING_PARENTHESES);
   n->cond = expression();
   expect(TK_CLOSING_PARENTHESES);
@@ -1248,8 +1287,7 @@ static Node while_stat() {
 }
 
 static Node dowhile_stat() {
-  Node n = mknode(A_DOWHILE);
-  expect(TK_DO);
+  Node n = mknode(A_DOWHILE, expect(TK_DO));
   n->body = statement(0);
   expect(TK_WHILE);
   expect(TK_OPENING_PARENTHESES);
@@ -1260,8 +1298,7 @@ static Node dowhile_stat() {
 }
 
 static Node for_stat() {
-  Node n = mknode(A_FOR);
-  expect(TK_FOR);
+  Node n = mknode(A_FOR, expect(TK_FOR));
   expect(TK_OPENING_PARENTHESES);
   enter_scope();
   if (!consume(TK_SIMI))
@@ -1296,164 +1333,182 @@ static Node expression() {
 }
 
 static Node comma_expr() {
+  Token tok;
   Node n = assign_expr();
   for (;;) {
-    if (consume(TK_COMMA))
-      n = mkbinary(A_COMMA, n, assign_expr());
+    if ((tok = consume(TK_COMMA)))
+      n = mkbinary(A_COMMA, n, assign_expr(), tok);
     else
       return n;
   }
 }
 
 static Node assign_expr() {
+  Token tok;
   Node n = conditional_expr();
   for (;;) {
-    if (consume(TK_EQUAL))
-      n = mkbinary(A_ASSIGN, n, assign_expr());
-    else if (consume(TK_STAR_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_MUL, n, assign_expr()));
-    else if (consume(TK_SLASH_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_DIV, n, assign_expr()));
-    else if (consume(TK_PLUS_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_ADD, n, assign_expr()));
-    else if (consume(TK_MINUS_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_SUB, n, assign_expr()));
-    else if (consume(TK_LEFT_SHIFT_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_LEFT_SHIFT, n, assign_expr()));
-    else if (consume(TK_RIGHT_SHIFT_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_RIGHT_SHIFT, n, assign_expr()));
-    else if (consume(TK_AND_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_B_AND, n, assign_expr()));
-    else if (consume(TK_CARET_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_B_EXCLUSIVEOR, n, assign_expr()));
-    else if (consume(TK_BAR_EQUAL))
-      n = mkbinary(A_ASSIGN, n, mkbinary(A_B_INCLUSIVEOR, n, assign_expr()));
+    if ((tok = consume(TK_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, assign_expr(), tok);
+    // TODO: indenpended ast node for each coumpund assignment
+    else if ((tok = consume(TK_STAR_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_MUL, n, assign_expr(), NULL), tok);
+    else if ((tok = consume(TK_SLASH_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_DIV, n, assign_expr(), NULL), tok);
+    else if ((tok = consume(TK_PLUS_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_ADD, n, assign_expr(), NULL), tok);
+    else if ((tok = consume(TK_MINUS_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_SUB, n, assign_expr(), NULL), tok);
+    else if ((tok = consume(TK_LEFT_SHIFT_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_LEFT_SHIFT, n, assign_expr(), NULL),
+                   tok);
+    else if ((tok = consume(TK_RIGHT_SHIFT_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_RIGHT_SHIFT, n, assign_expr(), NULL),
+                   tok);
+    else if ((tok = consume(TK_AND_EQUAL)))
+      n = mkbinary(A_ASSIGN, n, mkbinary(A_B_AND, n, assign_expr(), NULL), tok);
+    else if ((tok = consume(TK_CARET_EQUAL)))
+      n = mkbinary(A_ASSIGN, n,
+                   mkbinary(A_B_EXCLUSIVEOR, n, assign_expr(), NULL), tok);
+    else if ((tok = consume(TK_BAR_EQUAL)))
+      n = mkbinary(A_ASSIGN, n,
+                   mkbinary(A_B_INCLUSIVEOR, n, assign_expr(), NULL), tok);
     else
       return n;
   }
 }
 
 static Node conditional_expr() {
+  Token tok;
   Node n = logical_or_expr();
-  if (consume(TK_QUESTIONMARK)) {
+  if ((tok = consume(TK_QUESTIONMARK))) {
     Node e = expression();
     expect(TK_COLON);
-    n = mkternary(n, e, conditional_expr());
+    n = mkternary(n, e, conditional_expr(), tok);
   }
   return n;
 }
 
 static Node logical_or_expr() {
+  Token tok;
   Node n = logical_and_expr();
   for (;;) {
-    if (consume(TK_BAR_BAR))
-      n = mkbinary(A_L_OR, n, logical_and_expr());
+    if ((tok = consume(TK_BAR_BAR)))
+      n = mkbinary(A_L_OR, n, logical_and_expr(), tok);
     else
       return n;
   }
 }
 
 static Node logical_and_expr() {
+  Token tok;
   Node n = inclusive_or_expr();
   for (;;) {
-    if (consume(TK_AND_AND))
-      n = mkbinary(A_L_AND, n, inclusive_or_expr());
+    if ((tok = consume(TK_AND_AND)))
+      n = mkbinary(A_L_AND, n, inclusive_or_expr(), tok);
     else
       return n;
   }
 }
 
 static Node inclusive_or_expr() {
+  Token tok;
   Node n = exclusive_or_expr();
   for (;;) {
-    if (consume(TK_BAR))
-      n = mkbinary(A_B_INCLUSIVEOR, n, exclusive_or_expr());
+    if ((tok = consume(TK_BAR)))
+      n = mkbinary(A_B_INCLUSIVEOR, n, exclusive_or_expr(), tok);
     else
       return n;
   }
 }
 
 static Node exclusive_or_expr() {
+  Token tok;
   Node n = bitwise_and_expr();
   for (;;) {
-    if (consume(TK_CARET))
-      n = mkbinary(A_B_EXCLUSIVEOR, n, bitwise_and_expr());
+    if ((tok = consume(TK_CARET)))
+      n = mkbinary(A_B_EXCLUSIVEOR, n, bitwise_and_expr(), tok);
     else
       return n;
   }
 }
 
 static Node bitwise_and_expr() {
+  Token tok;
   Node n = eq_expr();
   for (;;) {
-    if (consume(TK_AND))
-      n = mkbinary(A_B_AND, n, eq_expr());
+    if ((tok = consume(TK_AND)))
+      n = mkbinary(A_B_AND, n, eq_expr(), tok);
     else
       return n;
   }
 }
 
 static Node eq_expr() {
+  Token tok;
   Node n = rel_expr();
   for (;;) {
-    if (consume(TK_EQUAL_EQUAL))
-      n = mkbinary(A_EQ, n, rel_expr());
-    else if (consume(TK_NOT_EQUAL))
-      n = mkbinary(A_NE, n, rel_expr());
+    if ((tok = consume(TK_EQUAL_EQUAL)))
+      n = mkbinary(A_EQ, n, rel_expr(), tok);
+    else if ((tok = consume(TK_NOT_EQUAL)))
+      n = mkbinary(A_NE, n, rel_expr(), tok);
     else
       return n;
   }
 }
 
 static Node rel_expr() {
+  Token tok;
   Node n = shift_expr();
   for (;;) {
-    if (consume(TK_GREATER))
-      n = mkbinary(A_GT, n, shift_expr());
-    else if (consume(TK_LESS))
-      n = mkbinary(A_LT, n, shift_expr());
-    else if (consume(TK_GREATER_EQUAL))
-      n = mkbinary(A_GE, n, shift_expr());
-    else if (consume(TK_LESS_EQUAL))
-      n = mkbinary(A_LE, n, shift_expr());
+    if ((tok = consume(TK_GREATER)))
+      n = mkbinary(A_GT, n, shift_expr(), tok);
+    else if ((tok = consume(TK_LESS)))
+      n = mkbinary(A_LT, n, shift_expr(), tok);
+    else if ((tok = consume(TK_GREATER_EQUAL)))
+      n = mkbinary(A_GE, n, shift_expr(), tok);
+    else if ((tok = consume(TK_LESS_EQUAL)))
+      n = mkbinary(A_LE, n, shift_expr(), tok);
     else
       return n;
   }
 }
 
 static Node shift_expr() {
+  Token tok;
   Node n = sum_expr();
   for (;;) {
-    if (consume(TK_LEFT_SHIFT))
-      n = mkbinary(A_LEFT_SHIFT, n, sum_expr());
-    else if (consume(TK_RIGHT_SHIFT))
-      n = mkbinary(A_RIGHT_SHIFT, n, sum_expr());
+    if ((tok = consume(TK_LEFT_SHIFT)))
+      n = mkbinary(A_LEFT_SHIFT, n, sum_expr(), tok);
+    else if ((tok = consume(TK_RIGHT_SHIFT)))
+      n = mkbinary(A_RIGHT_SHIFT, n, sum_expr(), tok);
     else
       return n;
   }
 }
 
 static Node sum_expr() {
+  Token tok;
   Node n = mul_expr();
   for (;;) {
-    if (consume(TK_PLUS))
-      n = mkbinary(A_ADD, n, mul_expr());
-    else if (consume(TK_MINUS))
-      n = mkbinary(A_SUB, n, mul_expr());
+    if ((tok = consume(TK_PLUS)))
+      n = mkbinary(A_ADD, n, mul_expr(), tok);
+    else if ((tok = consume(TK_MINUS)))
+      n = mkbinary(A_SUB, n, mul_expr(), tok);
     else
       return n;
   }
 }
 
 static Node mul_expr() {
+  Token tok;
   Node n = cast_expr();
   for (;;) {
-    if (consume(TK_STAR))
-      n = mkbinary(A_MUL, n, cast_expr());
-    else if (consume(TK_SLASH))
-      n = mkbinary(A_DIV, n, cast_expr());
-    else if (consume(TK_PERCENT))
-      n = mkbinary(A_MOD, n, cast_expr());
+    if ((tok = consume(TK_STAR)))
+      n = mkbinary(A_MUL, n, cast_expr(), tok);
+    else if ((tok = consume(TK_SLASH)))
+      n = mkbinary(A_DIV, n, cast_expr(), tok);
+    else if ((tok = consume(TK_PERCENT)))
+      n = mkbinary(A_MOD, n, cast_expr(), tok);
     else
       return n;
   }
@@ -1474,42 +1529,44 @@ static Node cast_expr() {
 }
 
 static Node unary_expr() {
-  if (consume(TK_AND))
-    return mkunary(A_ADDRESS_OF, cast_expr());
-  if (consume(TK_STAR))
-    return mkunary(A_DEFERENCE, cast_expr());
-  if (consume(TK_PLUS))
-    return mkunary(A_PLUS, cast_expr());
-  if (consume(TK_MINUS))
-    return mkunary(A_MINUS, cast_expr());
-  if (consume(TK_TILDE))
-    return mkunary(A_B_NOT, cast_expr());
-  if (consume(TK_EXCLAMATION))
-    return mkunary(A_L_NOT, cast_expr());
-  if (consume(TK_PLUS_PLUS)) {
+  Token tok;
+  if ((tok = consume(TK_AND)))
+    return mkunary(A_ADDRESS_OF, cast_expr(), tok);
+  if ((tok = consume(TK_STAR)))
+    return mkunary(A_DEFERENCE, cast_expr(), tok);
+  if ((tok = consume(TK_PLUS)))
+    return mkunary(A_PLUS, cast_expr(), tok);
+  if ((tok = consume(TK_MINUS)))
+    return mkunary(A_MINUS, cast_expr(), tok);
+  if ((tok = consume(TK_TILDE)))
+    return mkunary(A_B_NOT, cast_expr(), tok);
+  if ((tok = consume(TK_EXCLAMATION)))
+    return mkunary(A_L_NOT, cast_expr(), tok);
+  if ((tok = consume(TK_PLUS_PLUS))) {
     Node u = unary_expr();
-    return mkbinary(A_ASSIGN, u, mkbinary(A_ADD, u, mkicons(1)));
+    return mkbinary(A_ASSIGN, u, mkbinary(A_ADD, u, mkicons(1), NULL), tok);
   }
-  if (consume(TK_MINUS_MINUS)) {
+  if ((tok = consume(TK_MINUS_MINUS))) {
     Node u = unary_expr();
-    return mkbinary(A_ASSIGN, u, mkbinary(A_SUB, u, mkicons(1)));
+    return mkbinary(A_ASSIGN, u, mkbinary(A_SUB, u, mkicons(1), NULL), tok);
   }
-  if (consume(TK_SIZEOF)) {
+  if ((tok = consume(TK_SIZEOF))) {
     Token back = token();
     if (consume(TK_OPENING_PARENTHESES) && match_specifier_typedef()) {
-      Node u = mknode(A_NOOP);
+      Node u = mknode(A_NOOP, NULL);
       u->type = type_name();
       expect(TK_CLOSING_PARENTHESES);
-      return mkunary(A_SIZE_OF, u);
+      return mkunary(A_SIZE_OF, u, tok);
     }
     set_token(back);
-    return mkunary(A_SIZE_OF, unary_expr());
+    return mkunary(A_SIZE_OF, unary_expr(), tok);
   }
 
   return postfix_expr();
 }
 
 static Node postfix_expr() {
+  Token tok;
   Node n = primary_expr();
   for (;;) {
     if (match(TK_OPENING_PARENTHESES))
@@ -1518,10 +1575,10 @@ static Node postfix_expr() {
       n = array_subscripting(n);
     else if (match(TK_DOT) || match(TK_ARROW))
       n = member_selection(n);
-    else if (consume(TK_PLUS_PLUS))
-      n = mkunary(A_POSTFIX_INC, n->kind == A_IDENT ? ordinary(n) : n);
-    else if (consume(TK_MINUS_MINUS))
-      n = mkunary(A_POSTFIX_DEC, n->kind == A_IDENT ? ordinary(n) : n);
+    else if ((tok = consume(TK_PLUS_PLUS)))
+      n = mkunary(A_POSTFIX_INC, n->kind == A_IDENT ? ordinary(n) : n, tok);
+    else if ((tok = consume(TK_MINUS_MINUS)))
+      n = mkunary(A_POSTFIX_DEC, n->kind == A_IDENT ? ordinary(n) : n, tok);
     else
       return n->kind == A_IDENT ? ordinary(n) : n;
   }
@@ -1532,16 +1589,16 @@ static Node primary_expr() {
 
   // constant
   if ((tok = consume(TK_NUM))) {
-    return mkiconsstr(tok->name);
+    return mkiconsstr(tok);
   }
 
   // string literal
   if ((tok = consume(TK_STRING)))
-    return mkstrlit(tok->name);
+    return mkstrlit(tok);
 
   // identifier
   if ((tok = consume(TK_IDENT))) {
-    Node n = mknode(A_IDENT);
+    Node n = mknode(A_IDENT, tok);
     n->name = tok->name;
     return n;
   }
@@ -1553,22 +1610,22 @@ static Node primary_expr() {
     return n;
   }
 
-  error("parse: primary get unexpected token \"%s\"", token()->name);
-  return NULL;
+  errorat(token(), "parse: primary get unexpected token");
+  assert(0);
 }
 
 static Node func_call(Node n) {
   if (n->kind != A_IDENT)
-    error("not implemented");
+    errorat(n->token, "not implemented");
   const char* name = n->name;
 
-  Node f = find_symbol(name, A_FUNCTION, SCOPE_FILE);
+  Node f = find_symbol(n->token, A_FUNCTION, SCOPE_FILE);
   if (!f) {  //  implicit function declaration
     warn("implicit declaration of function %s", name);
-    f = mkfunc(name, function_type(inttype, NULL));
+    f = mkfunc(n->token, function_type(inttype, NULL));
   }
 
-  n = mknode(A_FUNC_CALL);
+  n = mknode(A_FUNC_CALL, n->token);
   n->name = name;
   n->type = f->type->base;
   // function argument lists
@@ -1581,27 +1638,35 @@ static Node func_call(Node n) {
     if (!f->type->proto) {
       arg = mkcvs(default_argument_promoe(arg->type), arg);
     } else if (!param || param->type == voidtype) {
-      error("too many arguments to function %s", name);
+      infoat(f->token, "function declared:");
+      errorat(n->token, "too many arguments to function %s", name);
     } else if (param->type->kind == TY_VARARG) {
       arg = mkcvs(default_argument_promoe(arg->type), arg);
     } else {
       // http://port70.net/~nsz/c/c99/n1256.html#6.5.2.2p7
       if (is_arithmetic(param->type) && is_arithmetic(arg->type)) {
       } else if (is_ptr(param->type) && arg->kind == A_NUM &&
-                 n->right->intvalue == 0) {
+                 arg->intvalue == 0) {
       } else if (is_ptr(param->type) && is_ptr(arg->type)) {
         if (!is_const(deref_type(param->type)) &&
-            is_const(deref_type(arg->type)))
-          error("function call discards const");
-        if (!is_compatible_type(unqual(param->type), arg->type))
-          error("argument has incompatible type");
+            is_const(deref_type(arg->type))) {
+          infoat(param->token, "paramenter declared:");
+          errorat(arg->token, "function call discards const");
+        }
+        if (!is_compatible_type(unqual(param->type), arg->type)) {
+          infoat(param->token, "paramenter declared:");
+          errorat(arg->token, "argument has incompatible type");
+        }
       } else if (is_struct_or_union(param->type) &&
                  is_struct_or_union(arg->type)) {
-        if (!is_compatible_type(unqual(param->type), arg->type))
-          error("argument has incompatible type");
-      } else
-        error("argument has incompatible type");
-
+        if (!is_compatible_type(unqual(param->type), arg->type)) {
+          infoat(param->token, "paramenter declared:");
+          errorat(arg->token, "argument has incompatible type");
+        }
+      } else {
+        infoat(param->token, "paramenter declared:");
+        errorat(arg->token, "argument has incompatible type");
+      }
       arg = mkcvs(unqual(param->type), arg);
 
       param = param->next;
@@ -1610,63 +1675,71 @@ static Node func_call(Node n) {
     if (!match(TK_CLOSING_PARENTHESES))
       expect(TK_COMMA);
   };
+  if (param && param->type != voidtype) {
+    infoat(f->token, "function declared:");
+    errorat(n->token, "too few arguments to function call");
+  }
   return n;
 }
 
 static Node array_subscripting(Node n) {
+  Token tok;
+  Node a = n;
   if (n->kind == A_IDENT) {
-    if (!(n = find_symbol(n->name, A_VAR, SCOPE_ALL)))
-      error("undefined array");
+    if (!(a = find_symbol(n->token, A_VAR, SCOPE_ALL)))
+      errorat(n->token, "undeclared variable");
   }
 
-  while (consume(TK_OPENING_BRACKETS)) {
-    if (!is_ptr(n->type))
-      error("only array/pointer can be subscripted");
-    Node s = mknode(A_ARRAY_SUBSCRIPTING);
+  while ((tok = consume(TK_OPENING_BRACKETS))) {
+    if (!is_ptr(a->type))
+      errorat(tok, "only array/pointer can be subscripted");
+    Node s = mknode(A_ARRAY_SUBSCRIPTING, tok);
     s->index = mkcvs(longtype, expression());
-    s->array = n;
-    s->type = n->type->base;
-    n = s;
+    s->array = a;
+    s->type = a->type->base;
+    a = s;
     expect(TK_CLOSING_BRACKETS);
   }
-  return n;
+  return a;
 }
 
 static Node member_selection(Node n) {
+  Token tok;
+  Node a = n;
   if (n->kind == A_IDENT) {
-    if (!(n = find_symbol(n->name, A_VAR, SCOPE_ALL)))
-      error("undefined variable");
+    if (!(a = find_symbol(n->token, A_VAR, SCOPE_ALL)))
+      errorat(n->token, "undefined variable");
   }
 
-  if (consume(TK_ARROW)) {
-    if (!is_ptr(n->type))
-      error("pointer expect for -> operator");
-    n = mkunary(A_DEFERENCE, n);
+  if ((tok = consume(TK_ARROW))) {
+    if (!is_ptr(a->type))
+      errorat(a->token, "pointer expected for -> operator");
+    a = mkunary(A_DEFERENCE, a, tok);
   } else
-    expect(TK_DOT);
+    tok = expect(TK_DOT);
 
-  if (!is_struct_or_union(n->type))
-    error("select member in something a structure/union");
+  if (!is_struct_or_union(a->type))
+    errorat(a->token, "select member in something not a structure/union");
 
-  Node s = mknode(A_MEMBER_SELECTION);
-  s->structure = n;
-  s->member = get_struct_or_union_member(n->type, expect(TK_IDENT)->name);
+  Node s = mknode(A_MEMBER_SELECTION, tok);
+  s->structure = a;
+  tok = expect(TK_IDENT);
+  s->member = get_struct_or_union_member(a->type, tok->name);
   if (!s->member)
-    error("struct/union has no wanted member");
-  s->type = is_const(n->type) ? const_type(s->member->type) : s->member->type;
+    errorat(tok, "struct/union has no wanted member");
+  s->type = is_const(a->type) ? const_type(s->member->type) : s->member->type;
 
   return s;
 }
 
 static Node ordinary(Node n) {
   // http://port70.net/~nsz/c/c99/n1256.html#6.2.3
-  const char* name = n->name;
-  n = find_symbol(n->name, A_ANY, SCOPE_ALL);
-  if (!n)
-    error("undefined variable %s", name);
-  if (n->kind != A_VAR && n->kind != A_ENUM_CONST)
-    error("unknown identifer kind");
-  return n;
+  Node a = find_symbol(n->token, A_ANY, SCOPE_ALL);
+  if (!a)
+    errorat(n->token, "undefined variable");
+  if (a->kind != A_VAR && a->kind != A_ENUM_CONST)
+    errorat(n->token, "unknown identifer kind");
+  return a;
 }
 
 void parse() {

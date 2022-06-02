@@ -80,6 +80,8 @@ static const char* token_str[] = {
 // token currently being processed
 static Token ct;
 
+Token tok;  // the matched, expected, consumed token by match, expect, consume
+
 Token token() {
   return ct;
 }
@@ -88,12 +90,12 @@ void set_token(Token t) {
   ct = t;
 }
 
-int match(int kind) {
-  return ct->kind == kind;
+Token match(int kind) {
+  return ct->kind == kind ? ct : NULL;
 }
 
-int match_specifier() {
-  return ct->kind >= TK_VOID && ct->kind <= TK_TYPEDEF;
+Token match_specifier() {
+  return (ct->kind >= TK_VOID && ct->kind <= TK_TYPEDEF) ? ct : NULL;
 }
 
 Token expect(int kind) {
@@ -254,6 +256,8 @@ void tokenize() {
   buff = malloc(length);
 
   Token* tail = &ct;
+  int line_no = 1;
+  const char* line = cc;
 
   while (cc < ec) {
     Token n = NULL;
@@ -261,9 +265,16 @@ void tokenize() {
     if (!*cc)
       error("null character");
 
-    // space or tab
-    if (isspace(*cc)) {
-      cc++;
+    // space
+    if (*cc == ' ' || *cc == '\t' || *cc == '\v' || *cc == '\r') {
+      ++cc;
+      continue;
+    }
+
+    // new line
+    if (*cc == '\n') {
+      line = ++cc;
+      ++line_no;
       continue;
     }
 
@@ -276,14 +287,21 @@ void tokenize() {
 
     if (*cc == '/' && cc[1] == '*') {
       cc += 2;
-      while (cc < ec && !(*cc == '*' && cc[1] == '/'))
+      while (cc < ec && !(*cc == '*' && cc[1] == '/')) {
         ++cc;
+        if (*cc == '\n') {
+          ++line_no;
+          line = cc;
+        }
+      }
+
       if (*cc != '*' || cc[1] != '/')
         error("unterminated comment");
       cc += 2;
       continue;
     }
 
+    int char_no = cc - line;
     // number
     if (isdigit(*cc)) {  // 0-9
       n = integer_constant();
@@ -320,6 +338,9 @@ void tokenize() {
 
     if (!n)
       error("tokenize: syntax error, unknown \"%c\"", *cc);
+    n->line = line;
+    n->char_no = char_no;
+    n->line_no = line_no;
 
     tail = &(*tail = n)->next;
   }

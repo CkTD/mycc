@@ -13,8 +13,16 @@
 
 #define max(x, y) (((x) > (y)) ? (x) : (y))
 
+typedef struct type* Type;
+typedef struct node* Node;
+typedef struct token* Token;
+
 void error(char*, ...);
 void warn(char*, ...);
+void info(char*, ...);
+void errorat(Token tok, char* msg, ...);
+void warnat(Token tok, char* msg, ...);
+void infoat(Token tok, char* msg, ...);
 
 const char* stringn(const char* s, int n);
 const char* string(const char* s);
@@ -28,10 +36,6 @@ void parse_arguments(int argc, char* argv[]);
 
 int read_source(char** dst);
 void output(const char* fmt, ...);
-
-typedef struct type* Type;
-typedef struct node* Node;
-typedef struct token* Token;
 
 /*************
  *   symbs   *
@@ -49,7 +53,7 @@ void enter_scope();
 void exit_scope();
 void enter_func();
 void exit_func();
-Node find_symbol(const char* name, int kind, int scope);
+Node find_symbol(Token tok, int kind, int scope);
 void install_symbol(Node n, int scope);
 
 /*************
@@ -91,6 +95,7 @@ extern Type voidptrtype;
 typedef struct proto* Proto;
 struct proto {
   Type type;
+  Token token;
   const char* name;
   Proto next;
 };
@@ -98,6 +103,7 @@ struct proto {
 typedef struct member* Member;
 struct member {
   Type type;
+  Token token;
   const char* name;
   Member next;
   int offset;
@@ -232,12 +238,15 @@ struct token {
   int kind;
   Token next;
   const char* name;
+
+  const char* line;
+  int line_no, char_no;
 };
 
 Token token();
 void set_token(Token t);
-int match(int kind);
-int match_specifier();
+Token match(int kind);
+Token match_specifier();
 Token expect(int kind);
 Token consume(int kind);
 void tokenize();
@@ -329,6 +338,7 @@ enum {
 
 struct node {
   int kind;
+  Token token;
 
   // for expression, variable and function
   Type type;

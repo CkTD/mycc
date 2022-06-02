@@ -44,22 +44,26 @@ void exit_scope(Node f) {
 //   if name not found in scope, return NULL
 //   if a symbol matching the name but with different kind, error
 //   kind = A_ANY(0) means any kind is ok
-static Node find_block_scope(const char* name, BlockScope s, int kind) {
+static Node find_block_scope(Token tok, BlockScope s, int kind) {
   for (Node n = s->list; n; n = n->scope_next) {
-    if (name == n->name) {
-      if (kind && n->kind != kind)
-        error("conflict type for %s", name);
+    if (tok->name == n->name) {
+      if (kind && n->kind != kind) {
+        infoat(n->token, "previous:");
+        errorat(tok, "conflict type for %s", tok->name);
+      }
       return n;
     }
   }
   return NULL;
 }
 
-static Node find_file_scope(const char* name, int kind) {
+static Node find_file_scope(Token tok, int kind) {
   for (Node n = globals; n; n = n->next) {
-    if (name == n->name) {
-      if (kind && n->kind != kind)
-        error("conflict type for %s", name);
+    if (tok->name == n->name) {
+      if (kind && n->kind != kind) {
+        infoat(n->token, "previous (%s):", n->type->str);
+        errorat(tok, "conflict type for %s", tok->name);
+      }
       return n;
     }
   }
@@ -71,20 +75,20 @@ static Node find_file_scope(const char* name, int kind) {
 //                   else search in current block scope
 // for scope=ALL search in nested block scope from inner to outer,
 //                   then search in file scope
-Node find_symbol(const char* name, int kind, int scope) {
+Node find_symbol(Token tok, int kind, int scope) {
   Node n = NULL;
 
   if (scope == SCOPE_FILE || (scope == SCOPE_INNER && !current_func)) {
-    return find_file_scope(name, kind);
+    return find_file_scope(tok, kind);
   } else if (scope == SCOPE_INNER || (scope == SCOPE_INNER && current_func)) {
-    return find_block_scope(name, blockscope, kind);
+    return find_block_scope(tok, blockscope, kind);
   } else if (scope == SCOPE_ALL) {
     for (BlockScope s = blockscope; s; s = s->outer) {
-      if ((n = find_block_scope(name, s, kind))) {
+      if ((n = find_block_scope(tok, s, kind))) {
         return n;
       }
     }
-    return find_file_scope(name, kind);
+    return find_file_scope(tok, kind);
   }
 
   assert(0);
@@ -105,8 +109,11 @@ static void append_tail(Node* head, Node n) {
 // for scope=INNER install to file scope if not in a function
 //                   else install to current block scope
 void install_symbol(Node n, int scope) {
-  if (n->name && find_symbol(n->name, n->kind, scope))
-    error("redefine symbol \"%s\"", n->name);
+  Node dup;
+  if (n->token && (dup = find_symbol(n->token, n->kind, scope))) {
+    infoat(dup->token, "previous:");
+    errorat(n->token, "redefine symbol \"%s\"", n->name);
+  }
 
   if (scope == SCOPE_INNER && current_func) {
     // linked to the current scope, order doesn't matter

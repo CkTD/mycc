@@ -1,21 +1,64 @@
 #include "inc.h"
 
-void error(char* msg, ...) {
-  va_list ap;
-  va_start(ap, msg);
-  fprintf(stderr, "error: ");
-  vfprintf(stderr, msg, ap);
+static void msg(char* kind, char* fmt, va_list ap) {
+  fprintf(stderr, "%s: ", kind);
+  vfprintf(stderr, fmt, ap);
   fprintf(stderr, "\n");
-  *((int*)0) = 1;
-  exit(1);
 }
 
-void warn(char* msg, ...) {
-  va_list ap;
-  va_start(ap, msg);
-  fprintf(stderr, "warning: ");
-  vfprintf(stderr, msg, ap);
+static void msgat(char* kind, Token tok, char* fmt, va_list ap) {
+  fprintf(stderr, "%s:%d:%d: %s: ", options.input_filename, tok->line_no,
+          tok->char_no + 1, kind);
+  vfprintf(stderr, fmt, ap);
   fprintf(stderr, "\n");
+
+  fprintf(stderr, "    ");
+  for (const char* p = tok->line; *p && *p != '\n'; ++p)
+    fputc(*p, stderr);
+  fprintf(stderr, "\n");
+  fprintf(stderr, "    %*s%s\n", tok->char_no, "", "^");
+}
+
+void error(char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  msg("error", fmt, ap);
+  va_end(ap);
+  *((int*)0) = 1;
+}
+
+void warn(char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  msg("warn", fmt, ap);
+  va_end(ap);
+}
+
+void info(char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  msg("info", fmt, ap);
+  va_end(ap);
+}
+
+void errorat(Token tok, char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  msgat("error", tok, fmt, ap);
+  va_end(ap);
+  *((int*)0) = 1;
+}
+void warnat(Token tok, char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  msgat("warn", tok, fmt, ap);
+  va_end(ap);
+}
+void infoat(Token tok, char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  msgat("info", tok, fmt, ap);
+  va_end(ap);
 }
 
 static unsigned long hash(unsigned char* str, unsigned n) {
