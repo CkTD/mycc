@@ -122,6 +122,11 @@ static void gen_store(Type ty) {
 }
 
 static void gen_addr(Node n) {
+  if (n->kind == A_IDENT) {
+    gen_addr(n->ref);
+    return;
+  }
+
   if (n->kind == A_VAR) {
     if (n->is_global)
       output("\tleaq\t%s(%%rip), %%rax\n", n->name);
@@ -401,6 +406,9 @@ static void gen_shift(Node n) {
 static void gen_expr(Node n) {
   switch (n->kind) {
     case A_NOOP:
+      return;
+    case A_IDENT:
+      gen_expr(n->ref);
       return;
     case A_NUM:
     case A_ENUM_CONST:

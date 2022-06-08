@@ -399,6 +399,9 @@ struct node {
   Node params;
   Node locals;
   int stack_size;
+
+  // A_IDNET
+  Node ref;
 };
 
 #define list_for_each(head, node) \

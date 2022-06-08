@@ -27,6 +27,7 @@ A toy c compiler for learning purpose, support some C99 features and generate co
 
 * [Computer Systems A Programmers Perspective (3rd)](https://github.com/Sorosliu1029/CSAPP-Labs/blob/master/Computer%20Systems%20A%20Programmers%20Perspective%20(3rd).pdf)
 * [Compiler](https://en.wikipedia.org/wiki/Compiler)
+* [Compilers Principles, Techniques, and Tools (2rd)](http://ce.sharif.edu/courses/94-95/1/ce414-2/resources/root/Text%20Books/Compiler%20Design/Alfred%20V.%20Aho,%20Monica%20S.%20Lam,%20Ravi%20Sethi,%20Jeffrey%20D.%20Ullman-Compilers%20-%20Principles,%20Techniques,%20and%20Tools-Pearson_Addison%20Wesley%20(2006).pdf)
 * [Recursive descent parser](https://en.wikipedia.org/wiki/Recursive_descent_parser)
 * [LL parser](https://en.wikipedia.org/wiki/LL_parser)
 * Scope [wiki](https://en.wikipedia.org/wiki/Scope_(computer_science)) [C](http://port70.net/~nsz/c/c99/n1256.html#6.2.1)
@@ -97,6 +98,6 @@ A toy c compiler for learning purpose, support some C99 features and generate co
     - [ ] for debug: add corrsponding source line in output file 
     - [ ] add source location in error message
         - [ ] associate related Token to Node and Type
-        - [ ] distinguish identifiers referencing to the same var (we can error at current identifier that reference the var, instead of where the var declared)
+        - [x] distinguish identifiers referencing to the same var (we can error at current identifier that reference the var, instead of where the var declared)
     - [ ] error recovery, (test/085.c)
     - [x] read srouce code from file, write output to file

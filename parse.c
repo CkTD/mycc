@@ -13,12 +13,16 @@ static int is_lvalue(Node node) {
       return 1;
     case A_MEMBER_SELECTION:
       return is_lvalue(node->structure);
+    case A_IDENT:
+      return is_lvalue(node->ref);
     default:
       return 0;
   }
 }
 
 static int is_modifiable_lvalue(Node node, int ignore_qual) {
+  if (node->kind == A_IDENT)
+    node = node->ref;
   Type t = ignore_qual ? unqual(node->type) : node->type;
   return is_lvalue(node) && !is_const(t) && !is_array(t) &&
          !is_struct_with_const_member(t);
@@ -1684,62 +1688,62 @@ static Node func_call(Node n) {
 
 static Node array_subscripting(Node n) {
   Token tok;
-  Node a = n;
   if (n->kind == A_IDENT) {
-    if (!(a = find_symbol(n->token, A_VAR, SCOPE_ALL)))
+    if (!(n->ref = find_symbol(n->token, A_VAR, SCOPE_ALL)))
       errorat(n->token, "undeclared variable");
+    n->type = n->ref->type;
   }
 
   while ((tok = consume(TK_OPENING_BRACKETS))) {
-    if (!is_ptr(a->type))
+    if (!is_ptr(n->type))
       errorat(tok, "only array/pointer can be subscripted");
     Node s = mknode(A_ARRAY_SUBSCRIPTING, tok);
     s->index = mkcvs(longtype, expression());
-    s->array = a;
-    s->type = a->type->base;
-    a = s;
+    s->array = n;
+    s->type = n->type->base;
+    n = s;
     expect(TK_CLOSING_BRACKETS);
   }
-  return a;
+  return n;
 }
 
 static Node member_selection(Node n) {
   Token tok;
-  Node a = n;
   if (n->kind == A_IDENT) {
-    if (!(a = find_symbol(n->token, A_VAR, SCOPE_ALL)))
+    if (!(n->ref = find_symbol(n->token, A_VAR, SCOPE_ALL)))
       errorat(n->token, "undefined variable");
+    n->type = n->ref->type;
   }
 
   if ((tok = consume(TK_ARROW))) {
-    if (!is_ptr(a->type))
-      errorat(a->token, "pointer expected for -> operator");
-    a = mkunary(A_DEFERENCE, a, tok);
+    if (!is_ptr(n->type))
+      errorat(n->token, "pointer expected for -> operator");
+    n = mkunary(A_DEFERENCE, n, tok);
   } else
     tok = expect(TK_DOT);
 
-  if (!is_struct_or_union(a->type))
-    errorat(a->token, "select member in something not a structure/union");
+  if (!is_struct_or_union(n->type))
+    errorat(n->token, "select member in something not a structure/union");
 
   Node s = mknode(A_MEMBER_SELECTION, tok);
-  s->structure = a;
+  s->structure = n;
   tok = expect(TK_IDENT);
-  s->member = get_struct_or_union_member(a->type, tok->name);
+  s->member = get_struct_or_union_member(n->type, tok->name);
   if (!s->member)
     errorat(tok, "struct/union has no wanted member");
-  s->type = is_const(a->type) ? const_type(s->member->type) : s->member->type;
+  s->type = is_const(n->type) ? const_type(s->member->type) : s->member->type;
 
   return s;
 }
 
 static Node ordinary(Node n) {
   // http://port70.net/~nsz/c/c99/n1256.html#6.2.3
-  Node a = find_symbol(n->token, A_ANY, SCOPE_ALL);
-  if (!a)
-    errorat(n->token, "undefined variable");
-  if (a->kind != A_VAR && a->kind != A_ENUM_CONST)
+  if (!(n->ref = find_symbol(n->token, A_ANY, SCOPE_ALL)))
+    errorat(n->token, "undefined symbol");
+  n->type = n->ref->type;
+  if (n->ref->kind != A_VAR && n->ref->kind != A_ENUM_CONST)
     errorat(n->token, "unknown identifer kind");
-  return a;
+  return n;
 }
 
 void parse() {
